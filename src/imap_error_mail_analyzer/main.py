@@ -11,7 +11,6 @@ from .modules.ollama_client import OllamaClient
 from .modules.report import write_reports
 from .modules.cache import ProcessedCache
 from .utils.email_utils import compute_message_hash
-from .utils.logger import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +107,12 @@ def _build_record(bounce, classification):
 def main():
     """Application entry point."""
     args = parse_args()
-    setup_logging(args.verbose)
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        stream=sys.stdout,
+    )
 
     config = load_config(args.config)
     days = args.days or config.default_days or _DEFAULT_DAYS
