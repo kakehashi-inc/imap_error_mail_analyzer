@@ -55,8 +55,21 @@ CRITICAL: You MUST read the current content of [README.md](README.md) BEFORE tak
 You MUST strictly adhere to the "Development Rules" (開発ルール) section within README.md.
 </instruction>
 <development_rules>
-- All developer-facing documents, except `README.md`, MUST be placed in the `Documents` directory.
-- After every change, you MUST run the linter and fix all issues. If a linter error is intentionally suppressed, add a comment explaining the reason. **A full build is only required for releases; running the linter alone is sufficient during development.**
+- Developer docs go in `Documents/` (except README.md)
+- Imports must be at top-level unless circular import would occur
+- Run `pylint src/` after changes; no warnings/errors allowed
+- Modules go in `src/imap_error_mail_analyzer/modules/`
+- Utils go in `src/imap_error_mail_analyzer/utils/`
 - Temporary or investigative scripts (e.g., research/debug scripts) MUST be placed in the `scripts` directory.
+- After behavior changes: update `Documents/システム仕様.md`
 </development_rules>
+<python_execution>
+You must activate the venv environment before running python commands.
+
+Activate venv(Linux):
+source venv/bin/activate
+
+Activate venv(Windows):
+.\venv\Scripts\activate
+</python_execution>
 </project_details>

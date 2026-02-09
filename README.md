@@ -1,10 +1,15 @@
-# Gmail Attachment Downloader
+# IMAP Error Mail Analyzer
 
-概要を記載
+複数のIMAPアカウントからバウンスメール(5xxエラー)を検出し、Ollamaで対応すべき担当者を分類してCSVレポートを生成するツール。
 
 ## 機能
 
-- 機能を記載
+- 複数IMAPアカウントの一括チェック
+- 5xxバウンスメールの自動検出(DSN / 本文テキスト解析)
+- OllamaによるAI分類(サーバー管理者 / サービス管理者 / その他管理者 / ユーザー)
+- ユーザー起因エラー(アドレス誤り、メールボックス容量超過等)を自動除外
+- 日付+アカウント名付きCSVログ出力(対象/対象外の2ファイル)
+- 処理済みメールのハッシュキャッシュによる重複処理スキップ
 
 ## インストール
 
@@ -59,6 +64,10 @@ pip install -e ".[dev]"
 
 ### 依存関係
 
+**実行依存関係**:
+
+- `requests` - Ollama API通信
+
 **開発依存関係**（`[dev]`でインストール）:
 
 - `pylint` - コードリント
@@ -90,14 +99,41 @@ pip install -e ".[dev]"
 
 # 開発ツール実行
 black src/
-ruff check src/
+pylint src/
 ```
 
 ## セットアップ
 
 ### 1. 設定ファイル作成
 
-`config.json`ファイルを作成（`config.example.json`を参考）
+`config.example.json` をコピーして `config.json` を作成：
+
+```bash
+cp config.example.json config.json
+```
+
+### 2. 設定項目
+
+| キー | 説明 | デフォルト |
+|------|------|-----------|
+| `default_days` | 取得日数 | `7` |
+| `log_dir` | ログ出力ディレクトリ | `"logs"` |
+| `ollama.base_url` | Ollama APIのURL | `"http://localhost:11434"` |
+| `ollama.model` | 使用するモデル名 | `"gemma3:4b"` |
+| `accounts.<name>.host` | IMAPサーバーホスト | (必須) |
+| `accounts.<name>.port` | IMAPサーバーポート | (必須) |
+| `accounts.<name>.username` | ログインユーザー名 | (必須) |
+| `accounts.<name>.password` | ログインパスワード | (必須) |
+| `accounts.<name>.security` | 接続方式 (`ssl` / `starttls` / `none`) | `"ssl"` |
+| `accounts.<name>.check` | チェック対象フォルダ | `["INBOX"]` |
+
+### 3. Ollamaの準備
+
+ローカルまたはリモートでOllamaを起動し、使用するモデルをプルしておく：
+
+```bash
+ollama pull gemma3:4b
+```
 
 ## 使用方法
 
@@ -112,15 +148,11 @@ imap-error-mail-analyzer --help
 ```bash
 # バージョン確認
 imap-error-mail-analyzer --version
-```
 
-### 基本使用法
-
-```bash
-# 過去7日間の添付ファイルをダウンロード（デフォルト）
+# デフォルト設定で実行(config.jsonのdefault_days日間)
 imap-error-mail-analyzer
 
-# 日数指定
+# 日数指定(config.jsonのdefault_daysを上書き)
 imap-error-mail-analyzer --days 30
 
 # カスタム設定ファイル使用
@@ -137,10 +169,44 @@ imap-error-mail-analyzer -v
 uvx imap-error-mail-analyzer --days 7
 ```
 
+## 出力
+
+### CSVファイル
+
+`log_dir` に以下の2ファイルが出力されます：
+
+- `{YYYYMMDD}_{アカウント名}_target.csv` - 対応が必要なエラー(サーバー/サービス/その他管理者)
+- `{YYYYMMDD}_{アカウント名}_excluded.csv` - ユーザー起因のエラー(対象外)
+
+### CSVカラム
+
+| カラム | 説明 |
+|--------|------|
+| `date` | バウンスメールの日付 |
+| `account` | アカウント名 |
+| `folder` | メールフォルダ |
+| `error_code` | 5xxエラーコード |
+| `error_cause` | エラーの原因(5xxの原因) |
+| `ai_responsible_party` | AIによる対応すべき人 |
+| `ai_reason` | AIの判定理由 |
+| `from_addr` | 元の送信者アドレス |
+| `to_addr` | 配信失敗した宛先アドレス |
+| `subject` | 元メールの件名 |
+| `body` | エラー本文(抜粋) |
+
+### 処理済みキャッシュ
+
+`{log_dir}/.cache/{アカウント名}_processed.json` に処理済みメールのハッシュが保存されます。
+取得日数を過ぎた古いエントリは自動的に削除されます。
+
 ## 開発者向けリファレンス
 
 ### 開発ルール
 
 - 開発者の参照するドキュメントは`README.md`を除き`Documents`に配置すること。
-- 対応後は必ずリンターで確認を行い適切な修正を行うこと。故意にリンターエラーを許容する際は、その旨をコメントで明記すること。 **ビルドはリリース時に行うものでデバックには不要なのでリンターまでで十分**
+- importは循環インポートが発生しない限りトップレベルで行うこと。
+- pylintで警告や注意が表示されないように考慮しながら開発を行うこと。
+- 対応後は必ず`pylint src/`で確認を行い適切な修正を行うこと。故意にリンターエラーを許容する際は、ユーザーに確認をし許可があれば、除外理由をコメントで明記すること。
+- Pythonの処理を記載する中で部品化するものは`src/imap_error_mail_analyzer/utils/`にファイルを作成して実装すること。
 - 一時的なスクリプトなど（例:調査用スクリプト）は`scripts`ディレクトリに配置すること。
+- システムの動作などに変更があった場合は、`Documents/システム仕様.md`を更新すること。
