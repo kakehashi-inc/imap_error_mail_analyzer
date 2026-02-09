@@ -66,10 +66,10 @@ You MUST strictly adhere to the "Development Rules" (開発ルール) section wi
 <python_execution>
 You must activate the venv environment before running python commands.
 
-Activate venv(Linux):
+Activate venv(Linux bash, macos zsh):
 source venv/bin/activate
 
-Activate venv(Windows):
+Activate venv(Windows PowerShell):
 .\venv\Scripts\activate
 </python_execution>
 </project_details>

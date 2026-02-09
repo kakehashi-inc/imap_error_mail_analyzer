@@ -1,12 +1,12 @@
 [project]
 name = "imap-error-mail-analyzer"
 version = "0.1.0"
-description = "Gmail attachment downloader with regex filtering support"
+description = "Analyze IMAP bounce mails, classify 5xx errors with Ollama, and generate CSV reports"
 authors = [{ name = "kakehashi" }]
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
-keywords = ["gmail", "attachment", "download", "email", "automation"]
+keywords = ["imap", "bounce", "email", "error-analysis", "ollama"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -21,6 +21,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "requests>=2.31.0",
 ]
 
 [project.urls]
@@ -69,6 +70,7 @@ max-args = 10
 max-locals = 25
 max-branches = 20
 max-statements = 60
+max-attributes = 10
 
 [tool.pylint.messages_control]
 disable = [

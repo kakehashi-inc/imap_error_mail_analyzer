@@ -215,3 +215,4 @@ downloads/
 /*.sql
 .specstory
 wget-log
+logs/
