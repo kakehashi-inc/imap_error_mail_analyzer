@@ -1,0 +1,79 @@
+[project]
+name = "imap-error-mail-analyzer"
+version = "0.1.0"
+description = "Gmail attachment downloader with regex filtering support"
+authors = [{ name = "kakehashi" }]
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+keywords = ["gmail", "attachment", "download", "email", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Email",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+]
+
+[project.urls]
+Homepage = "https://github.com/kakehashi-inc/imap-error-mail-analyzer"
+Repository = "https://github.com/kakehashi-inc/imap-error-mail-analyzer.git"
+Issues = "https://github.com/kakehashi-inc/imap-error-mail-analyzer/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pylint",
+    "pylint-plugin-utils",
+    "black"
+]
+build = [
+    "build>=1.0.0",
+    "twine>=5.0.0",
+    "wheel>=0.42.0"
+]
+
+[project.scripts]
+imap-error-mail-analyzer = "imap_error_mail_analyzer.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+dev-dependencies = [
+    "build>=1.0.0",
+    "twine>=5.0.0",
+    "wheel>=0.42.0",
+]
+
+[tool.black]
+line-length = 160
+exclude = 'tests/'
+
+[tool.pylint.MASTER]
+load-plugins = ""
+
+[tool.pylint.FORMAT]
+max-line-length = 160
+
+[tool.pylint.DESIGN]
+max-args = 10
+max-locals = 25
+max-branches = 20
+max-statements = 60
+
+[tool.pylint.messages_control]
+disable = [
+    "W0718",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

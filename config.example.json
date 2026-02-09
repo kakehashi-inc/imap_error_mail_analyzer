@@ -1,0 +1,39 @@
+{
+  "default_days": 7,
+  "app_dir": null,
+  "credentials_path": null,
+  "download_base_path": null,
+  "encryption_salt": null,
+  "accounts": {
+    "user@gmail.com": [
+      {
+        "from": "invoice@.*\\.example\\.com",
+        "subject": ["Receipt", "Invoice", "Statement"],
+        "body": "Payment.*confirmed",
+        "attachments": ["*.pdf"]
+      },
+      {
+        "from": "billing@.*\\.example\\.com",
+        "subject": "Monthly Report",
+        "attachments": ["report_*.pdf", "summary_*.pdf"]
+      }
+    ],
+    "user@company.com": [
+      {
+        "from": [
+          "billing@service1\\.com",
+          "accounting@service2\\.com",
+          "no-reply@payment\\..*"
+        ],
+        "subject": "Monthly.*Statement",
+        "attachments": null
+      }
+    ],
+    "another@domain.com": [
+      {
+        "subject": "(Receipt|Invoice) #[0-9]+",
+        "attachments": ["invoice_*.pdf", "receipt_*.pdf"]
+      }
+    ]
+  }
+}

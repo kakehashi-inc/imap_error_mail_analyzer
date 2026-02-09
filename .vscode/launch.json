@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "debugpy",
+      "request": "launch",
+      "name": "Launch Downloader",
+      "module": "imap_error_mail_analyzer.main",
+      "args": [
+        "--config", "${workspaceFolder}/config.json",
+        "--days", "30"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
