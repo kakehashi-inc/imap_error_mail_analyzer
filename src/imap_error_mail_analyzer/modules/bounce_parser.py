@@ -4,7 +4,7 @@ import re
 import logging
 from dataclasses import dataclass
 
-from ..utils.email_utils import decode_header_value, get_header, get_address, get_body_text
+from ..utils.email_utils import decode_header_value, get_header, get_address, get_all_body_text, get_body_parts
 
 logger = logging.getLogger(__name__)
 
@@ -42,23 +42,6 @@ _RE_DSN_STATUS = re.compile(
     re.MULTILINE,
 )
 
-# Bounce sender detection
-_RE_BOUNCE_SENDER = re.compile(
-    r"(?:mailer-daemon|postmaster|mail-daemon|bounce|noreply.*bounce)",
-    re.IGNORECASE,
-)
-
-_BOUNCE_SUBJECT_KEYWORDS = (
-    "undelivered",
-    "undeliverable",
-    "delivery status",
-    "delivery failure",
-    "returned mail",
-    "mail delivery failed",
-    "failure notice",
-    "non-delivery",
-)
-
 _EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
 
 # Maximum body snippet length stored in a record
@@ -75,7 +58,8 @@ class BounceRecord:
     from_addr: str
     to_addr: str
     subject: str
-    body: str
+    body_plain: str
+    body_html: str
     folder: str
 
 
@@ -84,37 +68,19 @@ class BounceRecord:
 # ---------------------------------------------------------------------------
 
 
-def is_bounce_message(msg):
-    """Return True if *msg* looks like a bounce / DSN message."""
-    content_type = msg.get_content_type()
-    if content_type == "multipart/report":
-        report_type = str(msg.get_param("report-type", "")).lower()
-        if "delivery-status" in report_type:
-            return True
-
-    from_addr = get_address(msg, "From").lower()
-    if _RE_BOUNCE_SENDER.search(from_addr):
-        return True
-
-    subject = get_header(msg, "Subject").lower()
-    if any(kw in subject for kw in _BOUNCE_SUBJECT_KEYWORDS):
-        return True
-
-    auto_submitted = get_header(msg, "Auto-Submitted").lower()
-    if auto_submitted and auto_submitted != "no":
-        if get_header(msg, "X-Failed-Recipients"):
-            return True
-
-    return False
-
-
 def extract_bounces(msg, folder="INBOX", sender_address=""):
     """Extract 5xx bounce information from *msg*.
+
+    All messages are inspected for 5xx errors regardless of whether they
+    match traditional bounce message patterns.  DSN structured parsing is
+    attempted first; if no DSN part is found the full body text (including
+    HTML parts) is scanned with regex.  Messages that contain no 5xx
+    errors simply return an empty list.
 
     Parameters
     ----------
     msg : email.message.Message
-        The bounce email message.
+        The email message to inspect.
     folder : str
         Mailbox folder the message was fetched from.
     sender_address : str
@@ -123,22 +89,19 @@ def extract_bounces(msg, folder="INBOX", sender_address=""):
     Returns
     -------
     list[BounceRecord]
-        One record per failed recipient / error found. Empty list if the
-        message is not a bounce or contains no 5xx errors.
+        One record per failed recipient / error found.  Empty list when
+        no 5xx errors are detected.
     """
-    if not is_bounce_message(msg):
-        return []
-
     date = get_header(msg, "Date")
-    body_text = get_body_text(msg)
-
-    from_addr = _extract_original_from(msg, body_text) or sender_address
-    original_subject = _extract_original_subject(msg, body_text) or get_header(msg, "Subject")
+    body_text = get_all_body_text(msg)
 
     # Try DSN structured parsing first, then fall back to body regex
     errors = _extract_dsn_errors(msg) or _extract_body_errors(body_text)
     if not errors:
         return []
+
+    from_addr = _extract_original_from(msg, body_text) or sender_address
+    original_subject = _extract_original_subject(msg, body_text) or get_header(msg, "Subject")
 
     # Fill in missing recipient addresses from other sources
     failed_recipients = _extract_failed_recipients(msg, body_text)
@@ -146,7 +109,9 @@ def extract_bounces(msg, folder="INBOX", sender_address=""):
         if not err["to_addr"] and failed_recipients:
             err["to_addr"] = failed_recipients[min(i, len(failed_recipients) - 1)]
 
-    body_snippet = body_text[:_MAX_BODY_LEN].replace("\r\n", " ").replace("\n", " ")
+    plain_text, html_text = get_body_parts(msg)
+    plain_snippet = plain_text[:_MAX_BODY_LEN].replace("\r\n", " ").replace("\n", " ")
+    html_snippet = html_text[:_MAX_BODY_LEN].replace("\r\n", " ").replace("\n", " ")
 
     return [
         BounceRecord(
@@ -156,7 +121,8 @@ def extract_bounces(msg, folder="INBOX", sender_address=""):
             from_addr=from_addr,
             to_addr=err["to_addr"],
             subject=original_subject,
-            body=body_snippet,
+            body_plain=plain_snippet,
+            body_html=html_snippet,
             folder=folder,
         )
         for err in errors

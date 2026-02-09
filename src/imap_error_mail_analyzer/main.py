@@ -62,7 +62,9 @@ def process_account(account_name, account_config, days, ollama, log_dir):
 
                 for bounce in bounces:
                     classification = ollama.classify_error(bounce)
-                    record = _build_record(account_name, bounce, classification)
+                    label = "excluded" if classification["is_user_caused"] else "target"
+                    logger.info("5xx [%s] %s -> %s", bounce.error_code, label, bounce.to_addr)
+                    record = _build_record(bounce, classification)
 
                     if classification["is_user_caused"]:
                         excluded_records.append(record)
@@ -86,11 +88,10 @@ def process_account(account_name, account_config, days, ollama, log_dir):
     )
 
 
-def _build_record(account_name, bounce, classification):
+def _build_record(bounce, classification):
     """Merge bounce data and AI classification into a flat dict for CSV."""
     return {
         "date": bounce.date,
-        "account": account_name,
         "folder": bounce.folder,
         "error_code": bounce.error_code,
         "error_cause": bounce.error_message,
@@ -99,7 +100,8 @@ def _build_record(account_name, bounce, classification):
         "from_addr": bounce.from_addr,
         "to_addr": bounce.to_addr,
         "subject": bounce.subject,
-        "body": bounce.body,
+        "body_plain": bounce.body_plain,
+        "body_html": bounce.body_html,
     }
 
 

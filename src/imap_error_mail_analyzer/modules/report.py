@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 FIELDNAMES = [
     "date",
-    "account",
     "folder",
     "error_code",
     "error_cause",
@@ -18,7 +17,8 @@ FIELDNAMES = [
     "from_addr",
     "to_addr",
     "subject",
-    "body",
+    "body_plain",
+    "body_html",
 ]
 
 

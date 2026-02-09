@@ -1,7 +1,7 @@
 """Ollama API client for classifying email delivery errors."""
 
-import json
 import logging
+import re
 
 import requests
 
@@ -16,16 +16,20 @@ Error Message: {error_message}
 Failed Recipient: {to_addr}
 
 Classify into exactly ONE of the following categories:
-- "server_admin"  : Server infrastructure (disk full, service down, misconfiguration, TLS/certificate)
-- "service_admin" : Service policy (sending limits, blocked domain, account disabled, spam filter)
-- "other_admin"   : DNS, relay, network, or other administrative issues
-- "user"          : Wrong address, nonexistent mailbox, mailbox full, user input error
+- server_admin : Server infrastructure (disk full, service down, misconfiguration, TLS/certificate)
+- service_admin : Service policy (sending limits, blocked domain, account disabled, spam filter)
+- other_admin : DNS, relay, network, or other administrative issues
+- user : Wrong address, nonexistent mailbox, mailbox full, user input error
 
-Respond with ONLY a JSON object (no markdown):
-{{"responsible": "<category>", "reason": "<brief reason in Japanese>"}}"""
+Reply in exactly two lines (no other text):
+CATEGORY: <category>
+REASON: <brief reason in Japanese>"""
 
 _VALID_CATEGORIES = {"server_admin", "service_admin", "other_admin", "user"}
 _USER_CATEGORIES = {"user"}
+
+_RE_CATEGORY = re.compile(r"CATEGORY\s*:\s*(\S+)", re.IGNORECASE)
+_RE_REASON = re.compile(r"REASON\s*:\s*(.+)", re.IGNORECASE)
 
 
 class OllamaClient:
@@ -64,7 +68,7 @@ class OllamaClient:
         try:
             resp = requests.post(
                 self._endpoint,
-                json={"model": self.model, "prompt": prompt, "stream": False, "format": "json"},
+                json={"model": self.model, "prompt": prompt, "stream": False},
                 timeout=120,
             )
             resp.raise_for_status()
@@ -73,19 +77,18 @@ class OllamaClient:
         except requests.RequestException as exc:
             logger.warning("Ollama request failed: %s", exc)
             return _fallback()
-        except (json.JSONDecodeError, KeyError, TypeError) as exc:
-            logger.warning("Failed to parse Ollama response: %s", exc)
-            return _fallback()
 
 
 def _parse_response(raw_text):
-    """Parse the JSON classification from Ollama's response text."""
-    data = json.loads(raw_text)
-    responsible = data.get("responsible", "").lower().strip()
-    reason = data.get("reason", "")
+    """Parse the plain-text classification from Ollama's response."""
+    cat_match = _RE_CATEGORY.search(raw_text)
+    reason_match = _RE_REASON.search(raw_text)
+
+    responsible = cat_match.group(1).lower().strip() if cat_match else ""
+    reason = reason_match.group(1).strip() if reason_match else ""
 
     if responsible not in _VALID_CATEGORIES:
-        logger.warning("Unknown category '%s', falling back", responsible)
+        logger.warning("Unknown category '%s' in response: %s", responsible, raw_text[:200])
         return _fallback(reason)
 
     return {

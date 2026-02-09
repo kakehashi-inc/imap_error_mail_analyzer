@@ -1,6 +1,8 @@
 """Email parsing utilities."""
 
 import hashlib
+import re
+from html.parser import HTMLParser
 
 from email.header import decode_header as _decode_header
 from email.utils import parseaddr
@@ -55,6 +57,74 @@ def get_body_text(msg):
     return ""
 
 
+def get_all_body_text(msg):
+    """Extract text from both text/plain and text/html parts.
+
+    For text/html parts, HTML tags are stripped to produce plain text.
+    Returns the concatenation of all text content found in the message.
+    """
+    texts = []
+    if msg.is_multipart():
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            payload = part.get_payload(decode=True)
+            if not payload:
+                continue
+            decoded = _decode_payload(part, payload)
+            if content_type == "text/plain":
+                texts.append(decoded)
+            elif content_type == "text/html":
+                texts.append(strip_html_tags(decoded))
+    else:
+        payload = msg.get_payload(decode=True)
+        if payload:
+            decoded = _decode_payload(msg, payload)
+            if msg.get_content_type() == "text/html":
+                texts.append(strip_html_tags(decoded))
+            else:
+                texts.append(decoded)
+    return "\n".join(texts)
+
+
+def get_body_parts(msg):
+    """Extract text/plain and text/html body content separately.
+
+    Returns
+    -------
+    tuple[str, str]
+        ``(plain_text, html_text)`` where html_text has tags stripped.
+    """
+    plains = []
+    htmls = []
+    if msg.is_multipart():
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            payload = part.get_payload(decode=True)
+            if not payload:
+                continue
+            decoded = _decode_payload(part, payload)
+            if content_type == "text/plain":
+                plains.append(decoded)
+            elif content_type == "text/html":
+                htmls.append(strip_html_tags(decoded))
+    else:
+        payload = msg.get_payload(decode=True)
+        if payload:
+            decoded = _decode_payload(msg, payload)
+            if msg.get_content_type() == "text/html":
+                htmls.append(strip_html_tags(decoded))
+            else:
+                plains.append(decoded)
+    return "\n".join(plains), "\n".join(htmls)
+
+
+def strip_html_tags(html):
+    """Remove HTML tags and return plain text content."""
+    stripper = _HTMLStripper()
+    stripper.feed(html)
+    return stripper.get_text()
+
+
 def compute_message_hash(msg):
     """Compute a stable hash for deduplication.
 
@@ -71,6 +141,22 @@ def compute_message_hash(msg):
     body_val = get_body_text(msg)[:200]
     content = f"{date_val}|{from_val}|{subject_val}|{body_val}"
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+class _HTMLStripper(HTMLParser):
+    """Minimal HTML-to-text converter using stdlib HTMLParser."""
+
+    def __init__(self):
+        super().__init__()
+        self._parts = []
+
+    def handle_data(self, data):
+        self._parts.append(data)
+
+    def get_text(self):
+        """Return concatenated text content."""
+        text = " ".join(self._parts)
+        return re.sub(r"\s+", " ", text).strip()
 
 
 def _decode_payload(part, payload):
