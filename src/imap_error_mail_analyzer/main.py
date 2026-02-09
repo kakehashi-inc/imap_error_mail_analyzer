@@ -62,7 +62,7 @@ def process_account(account_name, account_config, days, ollama, log_dir):
                 for bounce in bounces:
                     classification = ollama.classify_error(bounce)
                     label = "excluded" if classification["is_user_caused"] else "target"
-                    logger.info("5xx [%s] %s -> %s", bounce.error_code, label, bounce.to_addr)
+                    logger.debug("5xx [%s] %s -> %s", bounce.error_code, label, bounce.to_addr)
                     record = _build_record(bounce, classification)
 
                     if classification["is_user_caused"]:
@@ -116,15 +116,15 @@ def main():
 
     config = load_config(args.config)
     days = args.days or config.default_days or _DEFAULT_DAYS
-    logger.info("Fetch window: %d day(s)", days)
+    logger.debug("Fetch window: %d day(s)", days)
 
     ollama = OllamaClient(config.ollama.base_url, config.ollama.model)
 
     for account_name, account_config in config.accounts.items():
-        logger.info("--- Processing account: %s ---", account_name)
+        logger.debug("--- Processing account: %s ---", account_name)
         process_account(account_name, account_config, days, ollama, config.log_dir)
 
-    logger.info("All accounts processed.")
+    logger.debug("All accounts processed.")
 
 
 if __name__ == "__main__":

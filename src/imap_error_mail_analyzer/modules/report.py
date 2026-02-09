@@ -25,21 +25,26 @@ FIELDNAMES = [
 def write_reports(log_dir, account_name, target_records, excluded_records):
     """Write target and excluded bounce records to date-stamped CSV files.
 
-    Files are created even when the record list is empty so the operator can
-    confirm that the account was processed.
+    Files are only created when the record list is non-empty.
     """
+    if not target_records and not excluded_records:
+        logger.debug("No records for account '%s'; skipping CSV output.", account_name)
+        return
+
     out_dir = Path(log_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     date_str = datetime.now().strftime("%Y%m%d")
-    target_path = out_dir / f"{date_str}_{account_name}_target.csv"
-    excluded_path = out_dir / f"{date_str}_{account_name}_excluded.csv"
 
-    _write_csv(target_path, target_records)
-    _write_csv(excluded_path, excluded_records)
+    if target_records:
+        target_path = out_dir / f"{date_str}_{account_name}_target.csv"
+        _write_csv(target_path, target_records)
+        logger.debug("Report: %s (%d rows)", target_path, len(target_records))
 
-    logger.info("Report: %s (%d rows)", target_path, len(target_records))
-    logger.info("Report: %s (%d rows)", excluded_path, len(excluded_records))
+    if excluded_records:
+        excluded_path = out_dir / f"{date_str}_{account_name}_excluded.csv"
+        _write_csv(excluded_path, excluded_records)
+        logger.debug("Report: %s (%d rows)", excluded_path, len(excluded_records))
 
 
 def _write_csv(path, records):

@@ -29,7 +29,7 @@ class ImapClient:
                 self._conn.starttls()
 
         self._conn.login(self.account.username, self.account.password)
-        logger.info("Connected to %s as %s", host, self.account.username)
+        logger.debug("Connected to %s as %s", host, self.account.username)
 
     def fetch_messages(self, folder, days):
         """Fetch all messages from *folder* that arrived within *days* days.
@@ -49,11 +49,11 @@ class ImapClient:
 
         status, data = self._conn.search(None, f'(SINCE "{date_str}")')
         if status != "OK" or not data[0]:
-            logger.info("No messages in %s since %s", folder, date_str)
+            logger.debug("No messages in %s since %s", folder, date_str)
             return []
 
         msg_ids = data[0].split()
-        logger.info("Found %d message(s) in %s since %s", len(msg_ids), folder, date_str)
+        logger.debug("Found %d message(s) in %s since %s", len(msg_ids), folder, date_str)
 
         messages = []
         for msg_id in msg_ids:
@@ -76,4 +76,4 @@ class ImapClient:
             except Exception:  # pylint: disable=broad-except
                 pass
             self._conn = None
-            logger.info("Disconnected from %s", self.account.host)
+            logger.debug("Disconnected from %s", self.account.host)
