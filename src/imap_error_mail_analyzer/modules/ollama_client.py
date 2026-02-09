@@ -11,7 +11,7 @@ _MAX_BODY_PROMPT_LEN = 1000
 
 _PROMPT_TEMPLATE = """\
 You are an email delivery error analyst.
-Analyze the following 5xx SMTP delivery error and determine who should handle it.
+Analyze the following 5xx SMTP delivery error and classify it.
 
 Error Code: {error_code}
 Error Message: {error_message}
@@ -22,27 +22,38 @@ Failed Recipient: {to_addr}
 </body block>
 
 Classify into exactly ONE of the following categories:
-- server_admin : Sending server IP/host blocked on blocklist (Spamhaus, RBL, DNSBL, blacklist), server down, disk full, TLS/certificate issues
-- service_admin : Sending domain blocked or rejected by policy, sending limits exceeded, account disabled, spam policy
-- other_admin : DNS misconfiguration, relay issues, network problems, other administrative issues
-- user : Wrong address, nonexistent mailbox, mailbox full, user input error
+- ip_block : Sending server IP/host blocked on blocklist (Spamhaus, RBL, DNSBL, blacklist)
+- domain_block : Sending domain blocked or rejected by recipient policy
+- rate_limit : Sending rate/volume limits exceeded, spam throttling, too many connections
+- server_error : Sending server down, disk full, TLS/certificate issues, internal server error
+- config_error : DNS misconfiguration (SPF/DKIM/DMARC), relay denied, network/routing problems
+- user_unknown : Wrong/nonexistent recipient address, recipient domain typo or not found
+- user_mailbox_full : Recipient mailbox over quota / storage full
 
 IMPORTANT classification rules:
 Block types (by priority):
-1. If the SENDING SERVER IP or HOST is blocked (e.g. "Client host blocked", Spamhaus, RBL, DNSBL) -> server_admin
-2. If a SENDING DOMAIN is blocked or rejected by policy -> service_admin
-3. If a specific EMAIL ADDRESS is rejected or unknown -> user
+1. If the SENDING SERVER IP or HOST is blocked (e.g. "Client host blocked", Spamhaus, RBL, DNSBL) -> ip_block
+2. If a SENDING DOMAIN is blocked or rejected by policy -> domain_block
+3. If a specific EMAIL ADDRESS is rejected or unknown -> user_unknown
 
 DNS / domain resolution errors:
-- "Host or domain name not found", "Name service error", "domain not found" for the RECIPIENT domain -> user (the recipient typed a wrong domain, e.g. "yhoo.co.jp" instead of "yahoo.co.jp")
-- Do NOT classify recipient domain resolution failures as other_admin or service_admin; these are user input errors
+- "Host or domain name not found", "Name service error", "domain not found" for the RECIPIENT domain -> user_unknown (the sender typed a wrong domain, e.g. "yhoo.co.jp" instead of "yahoo.co.jp")
+- SPF/DKIM/DMARC failures on the SENDING side -> config_error
 
 Reply in exactly two lines (no other text):
 CATEGORY: <category>
 REASON: <brief reason in Japanese>"""
 
-_VALID_CATEGORIES = {"server_admin", "service_admin", "other_admin", "user"}
-_USER_CATEGORIES = {"user"}
+_VALID_CATEGORIES = {
+    "ip_block",
+    "domain_block",
+    "rate_limit",
+    "server_error",
+    "config_error",
+    "user_unknown",
+    "user_mailbox_full",
+}
+_USER_CATEGORIES = {"user_unknown", "user_mailbox_full"}
 
 _RE_CATEGORY = re.compile(r"CATEGORY\s*:\s*(\S+)", re.IGNORECASE)
 _RE_REASON = re.compile(r"REASON\s*:\s*(.+)", re.IGNORECASE)

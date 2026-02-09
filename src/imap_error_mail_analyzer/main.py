@@ -21,7 +21,7 @@ def parse_args(argv=None):
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         prog="imap-error-mail-analyzer",
-        description="Analyze IMAP bounce mails, classify 5xx errors with Ollama, and generate CSV reports.",
+        description="Analyze IMAP bounce mails, classify 5xx errors with Ollama, and generate JSON reports.",
     )
     parser.add_argument("-c", "--config", default="config.json", help="Path to config JSON file (default: config.json)")
     parser.add_argument("--days", type=int, default=None, help="Override fetch days (default: value from config)")
@@ -36,9 +36,9 @@ def process_account(account_name, account_config, days, ollama, log_dir):
     Returns
     -------
     dict[str, int]
-        Count of target records grouped by ``ai_responsible_party``.
+        Count of all bounce records grouped by ``ai_responsible_party``.
     """
-    cache = ProcessedCache(f"{log_dir}/.cache", account_name)
+    cache = ProcessedCache(f"{log_dir}/cache", account_name)
     cache.purge_older_than(days)
 
     client = ImapClient(account_config)
@@ -92,15 +92,15 @@ def process_account(account_name, account_config, days, ollama, log_dir):
         len(excluded_records),
     )
 
-    target_summary = {}
-    for rec in target_records:
+    summary = {}
+    for rec in target_records + excluded_records:
         party = rec["ai_responsible_party"]
-        target_summary[party] = target_summary.get(party, 0) + 1
-    return target_summary
+        summary[party] = summary.get(party, 0) + 1
+    return summary
 
 
 def _build_record(bounce, classification):
-    """Merge bounce data and AI classification into a flat dict for CSV."""
+    """Merge bounce data and AI classification into a flat dict for reporting."""
     return {
         "date": bounce.date,
         "folder": bounce.folder,
@@ -116,13 +116,13 @@ def _build_record(bounce, classification):
     }
 
 
-def _log_target_summary(all_summaries):
-    """Log a summary of target record counts per account and responsible party."""
+def _log_summary(all_summaries):
+    """Log a summary of bounce record counts per account and responsible party."""
     if not all_summaries:
-        logger.info("No target records found across all accounts.")
+        logger.info("No bounce records found across all accounts.")
         return
 
-    logger.info("=== Target record summary ===")
+    logger.info("=== Bounce record summary ===")
     grand_total = 0
     for account_name, summary in all_summaries.items():
         parts = [f"{party}: {count}" for party, count in sorted(summary.items())]
@@ -157,7 +157,7 @@ def main():
             all_summaries[account_name] = summary
 
     logger.debug("All accounts processed.")
-    _log_target_summary(all_summaries)
+    _log_summary(all_summaries)
 
 
 if __name__ == "__main__":
