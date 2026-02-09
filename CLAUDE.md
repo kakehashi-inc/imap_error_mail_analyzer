@@ -70,6 +70,6 @@ Activate venv(Linux bash, macos zsh):
 source venv/bin/activate
 
 Activate venv(Windows PowerShell):
-.\venv\Scripts\activate
+.\venv\Scripts\Activate.ps1
 </python_execution>
 </project_details>
