@@ -2,7 +2,6 @@
 
 import hashlib
 import re
-from html.parser import HTMLParser
 
 from email.header import decode_header as _decode_header
 from email.utils import parseaddr
@@ -60,8 +59,8 @@ def get_body_text(msg):
 def get_all_body_text(msg):
     """Extract text from both text/plain and text/html parts.
 
-    For text/html parts, HTML tags are stripped to produce plain text.
-    Returns the concatenation of all text content found in the message.
+    For text/html parts, body content is extracted and style/script blocks
+    are removed.  Returns the concatenation of all text content found.
     """
     texts = []
     if msg.is_multipart():
@@ -74,13 +73,13 @@ def get_all_body_text(msg):
             if content_type == "text/plain":
                 texts.append(decoded)
             elif content_type == "text/html":
-                texts.append(strip_html_tags(decoded))
+                texts.append(clean_html_body(decoded))
     else:
         payload = msg.get_payload(decode=True)
         if payload:
             decoded = _decode_payload(msg, payload)
             if msg.get_content_type() == "text/html":
-                texts.append(strip_html_tags(decoded))
+                texts.append(clean_html_body(decoded))
             else:
                 texts.append(decoded)
     return "\n".join(texts)
@@ -92,7 +91,8 @@ def get_body_parts(msg):
     Returns
     -------
     tuple[str, str]
-        ``(plain_text, html_text)`` where html_text has tags stripped.
+        ``(plain_text, html_text)`` where html_text has body extracted
+        and style/script removed but HTML tags preserved.
     """
     plains = []
     htmls = []
@@ -106,23 +106,33 @@ def get_body_parts(msg):
             if content_type == "text/plain":
                 plains.append(decoded)
             elif content_type == "text/html":
-                htmls.append(strip_html_tags(decoded))
+                htmls.append(clean_html_body(decoded))
     else:
         payload = msg.get_payload(decode=True)
         if payload:
             decoded = _decode_payload(msg, payload)
             if msg.get_content_type() == "text/html":
-                htmls.append(strip_html_tags(decoded))
+                htmls.append(clean_html_body(decoded))
             else:
                 plains.append(decoded)
     return "\n".join(plains), "\n".join(htmls)
 
 
-def strip_html_tags(html):
-    """Remove HTML tags and return plain text content."""
-    stripper = _HTMLStripper()
-    stripper.feed(html)
-    return stripper.get_text()
+def clean_html_body(html):
+    """Clean HTML for output by extracting body content and removing noise.
+
+    Processing steps:
+    1. Extract ``<body>`` content (skip head/meta); use full HTML if no body tag.
+    2. Remove ``<style>`` and ``<script>`` blocks entirely.
+    """
+    # Extract <body> content
+    body_match = re.search(r"<body[^>]*>(.*)</body>", html, re.DOTALL | re.IGNORECASE)
+    text = body_match.group(1) if body_match else html
+
+    # Remove <style> and <script> blocks
+    text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    return text
 
 
 def compute_message_hash(msg):
@@ -143,20 +153,20 @@ def compute_message_hash(msg):
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-class _HTMLStripper(HTMLParser):
-    """Minimal HTML-to-text converter using stdlib HTMLParser."""
+def normalize_whitespace(text):
+    """Normalize whitespace in body text for compact, readable output.
 
-    def __init__(self):
-        super().__init__()
-        self._parts = []
-
-    def handle_data(self, data):
-        self._parts.append(data)
-
-    def get_text(self):
-        """Return concatenated text content."""
-        text = " ".join(self._parts)
-        return re.sub(r"\s+", " ", text).strip()
+    - 2+ consecutive spaces/tabs are collapsed to a single space.
+    - Lines containing only whitespace become empty lines.
+    - Consecutive newlines are limited to 2 (line end + one blank line).
+    """
+    # Collapse 2+ horizontal whitespace characters to single space
+    text = re.sub(r"[^\S\n]{2,}", " ", text)
+    # Lines with only whitespace become just a newline
+    text = re.sub(r"^[ \t]+$", "", text, flags=re.MULTILINE)
+    # Collapse 3+ consecutive newlines to 2 (line end + one blank line)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def _decode_payload(part, payload):

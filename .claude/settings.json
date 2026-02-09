@@ -9,8 +9,7 @@
       "Bash(grep:*)",
       "Bash(glob:*)",
       "Bash(ls:*)",
-      "Bash(wc:*)",
-      "Bash(powershell.exe -Command \"*pylint src/\")"
+      "Bash(wc:*)"
     ],
     "deny": [],
     "ask": []

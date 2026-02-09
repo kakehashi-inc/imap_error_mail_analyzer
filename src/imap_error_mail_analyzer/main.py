@@ -31,7 +31,13 @@ def parse_args(argv=None):
 
 
 def process_account(account_name, account_config, days, ollama, log_dir):
-    """Fetch bounces for a single IMAP account, classify, and write reports."""
+    """Fetch bounces for a single IMAP account, classify, and write reports.
+
+    Returns
+    -------
+    dict[str, int]
+        Count of target records grouped by ``ai_responsible_party``.
+    """
     cache = ProcessedCache(f"{log_dir}/.cache", account_name)
     cache.purge_older_than(days)
 
@@ -40,7 +46,7 @@ def process_account(account_name, account_config, days, ollama, log_dir):
         client.connect()
     except Exception:
         logger.error("Failed to connect to account '%s'", account_name, exc_info=True)
-        return
+        return {}
 
     target_records = []
     excluded_records = []
@@ -86,6 +92,12 @@ def process_account(account_name, account_config, days, ollama, log_dir):
         len(excluded_records),
     )
 
+    target_summary = {}
+    for rec in target_records:
+        party = rec["ai_responsible_party"]
+        target_summary[party] = target_summary.get(party, 0) + 1
+    return target_summary
+
 
 def _build_record(bounce, classification):
     """Merge bounce data and AI classification into a flat dict for CSV."""
@@ -104,6 +116,23 @@ def _build_record(bounce, classification):
     }
 
 
+def _log_target_summary(all_summaries):
+    """Log a summary of target record counts per account and responsible party."""
+    if not all_summaries:
+        logger.info("No target records found across all accounts.")
+        return
+
+    logger.info("=== Target record summary ===")
+    grand_total = 0
+    for account_name, summary in all_summaries.items():
+        parts = [f"{party}: {count}" for party, count in sorted(summary.items())]
+        account_total = sum(summary.values())
+        grand_total += account_total
+        logger.info("  %s: %s (total: %d)", account_name, ", ".join(parts), account_total)
+    if len(all_summaries) > 1:
+        logger.info("  Grand total: %d", grand_total)
+
+
 def main():
     """Application entry point."""
     args = parse_args()
@@ -120,11 +149,15 @@ def main():
 
     ollama = OllamaClient(config.ollama.base_url, config.ollama.model)
 
+    all_summaries = {}
     for account_name, account_config in config.accounts.items():
         logger.debug("--- Processing account: %s ---", account_name)
-        process_account(account_name, account_config, days, ollama, config.log_dir)
+        summary = process_account(account_name, account_config, days, ollama, config.log_dir)
+        if summary:
+            all_summaries[account_name] = summary
 
     logger.debug("All accounts processed.")
+    _log_target_summary(all_summaries)
 
 
 if __name__ == "__main__":

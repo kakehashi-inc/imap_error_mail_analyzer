@@ -4,7 +4,14 @@ import re
 import logging
 from dataclasses import dataclass
 
-from ..utils.email_utils import decode_header_value, get_header, get_address, get_all_body_text, get_body_parts
+from ..utils.email_utils import (
+    decode_header_value,
+    get_header,
+    get_address,
+    get_all_body_text,
+    get_body_parts,
+    normalize_whitespace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +126,8 @@ def extract_bounces(msg, folder="INBOX", sender_address=""):
             err["to_addr"] = failed_recipients[min(i, len(failed_recipients) - 1)]
 
     plain_text, html_text = get_body_parts(msg)
-    plain_snippet = plain_text[:_MAX_BODY_LEN]
-    html_snippet = html_text[:_MAX_BODY_LEN]
+    plain_snippet = normalize_whitespace(plain_text)[:_MAX_BODY_LEN]
+    html_snippet = normalize_whitespace(html_text)[:_MAX_BODY_LEN]
 
     return [
         BounceRecord(

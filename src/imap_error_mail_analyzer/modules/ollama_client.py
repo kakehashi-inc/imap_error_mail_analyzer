@@ -75,7 +75,7 @@ class OllamaClient:
         dict
             ``{"responsible": str, "reason": str, "is_user_caused": bool}``
         """
-        body = (bounce_record.body_plain or "")[:_MAX_BODY_PROMPT_LEN]
+        body = (bounce_record.body_plain or bounce_record.body_html or "")[:_MAX_BODY_PROMPT_LEN]
         prompt = _PROMPT_TEMPLATE.format(
             error_code=bounce_record.error_code,
             error_message=bounce_record.error_message,
