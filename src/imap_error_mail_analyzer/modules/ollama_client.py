@@ -7,6 +7,8 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+_MAX_BODY_PROMPT_LEN = 1000
+
 _PROMPT_TEMPLATE = """\
 You are an email delivery error analyst.
 Analyze the following 5xx SMTP delivery error and determine who should handle it.
@@ -15,11 +17,25 @@ Error Code: {error_code}
 Error Message: {error_message}
 Failed Recipient: {to_addr}
 
+<body block>
+{body}
+</body block>
+
 Classify into exactly ONE of the following categories:
-- server_admin : Server infrastructure (disk full, service down, misconfiguration, TLS/certificate)
-- service_admin : Service policy (sending limits, blocked domain, account disabled, spam filter)
-- other_admin : DNS, relay, network, or other administrative issues
+- server_admin : Sending server IP/host blocked on blocklist (Spamhaus, RBL, DNSBL, blacklist), server down, disk full, TLS/certificate issues
+- service_admin : Sending domain blocked or rejected by policy, sending limits exceeded, account disabled, spam policy
+- other_admin : DNS misconfiguration, relay issues, network problems, other administrative issues
 - user : Wrong address, nonexistent mailbox, mailbox full, user input error
+
+IMPORTANT classification rules:
+Block types (by priority):
+1. If the SENDING SERVER IP or HOST is blocked (e.g. "Client host blocked", Spamhaus, RBL, DNSBL) -> server_admin
+2. If a SENDING DOMAIN is blocked or rejected by policy -> service_admin
+3. If a specific EMAIL ADDRESS is rejected or unknown -> user
+
+DNS / domain resolution errors:
+- "Host or domain name not found", "Name service error", "domain not found" for the RECIPIENT domain -> user (the recipient typed a wrong domain, e.g. "yhoo.co.jp" instead of "yahoo.co.jp")
+- Do NOT classify recipient domain resolution failures as other_admin or service_admin; these are user input errors
 
 Reply in exactly two lines (no other text):
 CATEGORY: <category>
@@ -59,10 +75,12 @@ class OllamaClient:
         dict
             ``{"responsible": str, "reason": str, "is_user_caused": bool}``
         """
+        body = (bounce_record.body_plain or "")[:_MAX_BODY_PROMPT_LEN]
         prompt = _PROMPT_TEMPLATE.format(
             error_code=bounce_record.error_code,
             error_message=bounce_record.error_message,
             to_addr=bounce_record.to_addr,
+            body=body,
         )
 
         try:

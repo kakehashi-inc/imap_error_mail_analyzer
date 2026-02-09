@@ -44,6 +44,12 @@ _RE_DSN_STATUS = re.compile(
 
 _EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
 
+# Postfix-style recipient error: <addr>: error description (may span continuation lines)
+_RE_RECIPIENT_ERROR = re.compile(
+    r"<([\w.+-]+@[\w.-]+\.\w+)>:\s+(.+?)(?=\n\S|\n\n|\Z)",
+    re.DOTALL,
+)
+
 # Maximum body snippet length stored in a record
 _MAX_BODY_LEN = 1000
 
@@ -100,6 +106,9 @@ def extract_bounces(msg, folder="INBOX", sender_address=""):
     if not errors:
         return []
 
+    # Supplement DSN placeholder messages with body text descriptions
+    _supplement_dsn_messages(errors, body_text)
+
     from_addr = _extract_original_from(msg, body_text) or sender_address
     original_subject = _extract_original_subject(msg, body_text) or get_header(msg, "Subject")
 
@@ -110,8 +119,8 @@ def extract_bounces(msg, folder="INBOX", sender_address=""):
             err["to_addr"] = failed_recipients[min(i, len(failed_recipients) - 1)]
 
     plain_text, html_text = get_body_parts(msg)
-    plain_snippet = plain_text[:_MAX_BODY_LEN].replace("\r\n", " ").replace("\n", " ")
-    html_snippet = html_text[:_MAX_BODY_LEN].replace("\r\n", " ").replace("\n", " ")
+    plain_snippet = plain_text[:_MAX_BODY_LEN]
+    html_snippet = html_text[:_MAX_BODY_LEN]
 
     return [
         BounceRecord(
@@ -170,10 +179,10 @@ def _extract_dsn_errors(msg):
         error_code = ""
         error_message = diagnostic
         if diagnostic:
-            code_match = re.match(r"(5\d{2})[\s\-]+(.*)", diagnostic)
+            code_match = re.match(r"(5\d{2})[\s\-]+(.*)", diagnostic, re.DOTALL)
             if code_match:
                 error_code = code_match.group(1)
-                error_message = code_match.group(2).strip()
+                error_message = re.sub(r"\s+", " ", code_match.group(2)).strip()
         if not error_code:
             error_code = status_match.group(1)
         if not error_message:
@@ -182,6 +191,30 @@ def _extract_dsn_errors(msg):
         results.append({"error_code": error_code, "error_message": error_message, "to_addr": recipient})
 
     return results
+
+
+def _supplement_dsn_messages(errors, body_text):
+    """Replace DSN placeholder messages with actual error text from the body.
+
+    When DSN parsing finds a Status code but no Diagnostic-Code, the
+    error_message is set to a placeholder like ``DSN status 5.4.4``.
+    This function searches the body text for Postfix-style recipient
+    error lines (``<addr>: description``) and fills in the real message.
+    """
+    # Build a lookup of recipient -> error description from body text
+    recipient_errors = {}
+    for match in _RE_RECIPIENT_ERROR.finditer(body_text):
+        addr = match.group(1).lower()
+        desc = re.sub(r"\s+", " ", match.group(2)).strip()
+        if addr not in recipient_errors:
+            recipient_errors[addr] = desc
+
+    for err in errors:
+        if not err["error_message"].startswith("DSN status"):
+            continue
+        addr_key = err["to_addr"].lower()
+        if addr_key in recipient_errors:
+            err["error_message"] = recipient_errors[addr_key]
 
 
 def _extract_body_errors(body_text):
