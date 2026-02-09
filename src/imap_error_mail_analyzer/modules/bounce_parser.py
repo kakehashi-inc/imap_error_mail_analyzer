@@ -181,9 +181,7 @@ def _extract_dsn_errors(msg):
                 except (LookupError, UnicodeDecodeError):
                     dsn_text = payload.decode("utf-8", errors="replace")
             elif isinstance(part.get_payload(), list):
-                dsn_text = "\n".join(
-                    sub.as_string() for sub in part.get_payload() if hasattr(sub, "as_string")
-                )
+                dsn_text = "\n".join(sub.as_string() for sub in part.get_payload() if hasattr(sub, "as_string"))
             break
 
     if not dsn_text:

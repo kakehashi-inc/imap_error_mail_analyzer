@@ -36,11 +36,7 @@ class ProcessedCache:
         """Remove entries added more than *days* days ago."""
         cutoff = date.today() - timedelta(days=days)
         before = len(self._data)
-        self._data = {
-            k: v
-            for k, v in self._data.items()
-            if date.fromisoformat(v) >= cutoff
-        }
+        self._data = {k: v for k, v in self._data.items() if date.fromisoformat(v) >= cutoff}
         removed = before - len(self._data)
         if removed:
             logger.debug("Purged %d stale cache entries", removed)
