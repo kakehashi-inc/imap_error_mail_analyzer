@@ -1,0 +1,307 @@
+"""Bounce message parser for extracting 5xx delivery errors."""
+
+import re
+import logging
+from dataclasses import dataclass
+
+from ..utils.email_utils import decode_header_value, get_header, get_address, get_body_text
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Regex patterns
+# ---------------------------------------------------------------------------
+
+# 5xx SMTP reply code, optionally followed by enhanced status code (5.x.x)
+_RE_5XX = re.compile(
+    r"(?:^|[\s;])(5\d{2})[\s\-]+(?:(5\.\d+\.\d+)[\s\-]+)?(.+?)(?:\r?\n|$)",
+    re.MULTILINE,
+)
+
+# Enhanced status code only (5.x.x)
+_RE_ENHANCED = re.compile(
+    r"(?:^|[\s;])(5\.\d+\.\d+)\s+(.+?)(?:\r?\n|$)",
+    re.MULTILINE,
+)
+
+# DSN fields
+_RE_DIAGNOSTIC = re.compile(
+    r"[Dd]iagnostic-[Cc]ode\s*:\s*smtp\s*;\s*(.+?)(?:\r?\n(?!\s)|$)",
+    re.MULTILINE | re.DOTALL,
+)
+_RE_FINAL_RECIPIENT = re.compile(
+    r"[Ff]inal-[Rr]ecipient\s*:\s*(?:rfc822|RFC822)\s*;\s*(\S+)",
+    re.MULTILINE,
+)
+_RE_ORIGINAL_RECIPIENT = re.compile(
+    r"[Oo]riginal-[Rr]ecipient\s*:\s*(?:rfc822|RFC822)\s*;\s*(\S+)",
+    re.MULTILINE,
+)
+_RE_DSN_STATUS = re.compile(
+    r"[Ss]tatus\s*:\s*(5\.\d+\.\d+)",
+    re.MULTILINE,
+)
+
+# Bounce sender detection
+_RE_BOUNCE_SENDER = re.compile(
+    r"(?:mailer-daemon|postmaster|mail-daemon|bounce|noreply.*bounce)",
+    re.IGNORECASE,
+)
+
+_BOUNCE_SUBJECT_KEYWORDS = (
+    "undelivered",
+    "undeliverable",
+    "delivery status",
+    "delivery failure",
+    "returned mail",
+    "mail delivery failed",
+    "failure notice",
+    "non-delivery",
+)
+
+_EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
+
+# Maximum body snippet length stored in a record
+_MAX_BODY_LEN = 1000
+
+
+@dataclass
+class BounceRecord:
+    """Single 5xx bounce error extracted from a message."""
+
+    date: str
+    error_code: str
+    error_message: str
+    from_addr: str
+    to_addr: str
+    subject: str
+    body: str
+    folder: str
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def is_bounce_message(msg):
+    """Return True if *msg* looks like a bounce / DSN message."""
+    content_type = msg.get_content_type()
+    if content_type == "multipart/report":
+        report_type = str(msg.get_param("report-type", "")).lower()
+        if "delivery-status" in report_type:
+            return True
+
+    from_addr = get_address(msg, "From").lower()
+    if _RE_BOUNCE_SENDER.search(from_addr):
+        return True
+
+    subject = get_header(msg, "Subject").lower()
+    if any(kw in subject for kw in _BOUNCE_SUBJECT_KEYWORDS):
+        return True
+
+    auto_submitted = get_header(msg, "Auto-Submitted").lower()
+    if auto_submitted and auto_submitted != "no":
+        if get_header(msg, "X-Failed-Recipients"):
+            return True
+
+    return False
+
+
+def extract_bounces(msg, folder="INBOX", sender_address=""):
+    """Extract 5xx bounce information from *msg*.
+
+    Parameters
+    ----------
+    msg : email.message.Message
+        The bounce email message.
+    folder : str
+        Mailbox folder the message was fetched from.
+    sender_address : str
+        Fallback original-sender address (typically the account username).
+
+    Returns
+    -------
+    list[BounceRecord]
+        One record per failed recipient / error found. Empty list if the
+        message is not a bounce or contains no 5xx errors.
+    """
+    if not is_bounce_message(msg):
+        return []
+
+    date = get_header(msg, "Date")
+    body_text = get_body_text(msg)
+
+    from_addr = _extract_original_from(msg, body_text) or sender_address
+    original_subject = _extract_original_subject(msg, body_text) or get_header(msg, "Subject")
+
+    # Try DSN structured parsing first, then fall back to body regex
+    errors = _extract_dsn_errors(msg) or _extract_body_errors(body_text)
+    if not errors:
+        return []
+
+    # Fill in missing recipient addresses from other sources
+    failed_recipients = _extract_failed_recipients(msg, body_text)
+    for i, err in enumerate(errors):
+        if not err["to_addr"] and failed_recipients:
+            err["to_addr"] = failed_recipients[min(i, len(failed_recipients) - 1)]
+
+    body_snippet = body_text[:_MAX_BODY_LEN].replace("\r\n", " ").replace("\n", " ")
+
+    return [
+        BounceRecord(
+            date=date,
+            error_code=err["error_code"],
+            error_message=err["error_message"],
+            from_addr=from_addr,
+            to_addr=err["to_addr"],
+            subject=original_subject,
+            body=body_snippet,
+            folder=folder,
+        )
+        for err in errors
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _extract_dsn_errors(msg):
+    """Parse errors from a DSN (multipart/report) delivery-status part."""
+    dsn_text = ""
+    for part in msg.walk():
+        if part.get_content_type() == "message/delivery-status":
+            payload = part.get_payload(decode=True)
+            if payload:
+                charset = part.get_content_charset() or "utf-8"
+                try:
+                    dsn_text = payload.decode(charset, errors="replace")
+                except (LookupError, UnicodeDecodeError):
+                    dsn_text = payload.decode("utf-8", errors="replace")
+            elif isinstance(part.get_payload(), list):
+                dsn_text = "\n".join(
+                    sub.as_string() for sub in part.get_payload() if hasattr(sub, "as_string")
+                )
+            break
+
+    if not dsn_text:
+        return []
+
+    # Split into per-recipient sections (separated by blank lines)
+    sections = re.split(r"\n\n+", dsn_text)
+    results = []
+    for section in sections:
+        status_match = _RE_DSN_STATUS.search(section)
+        if not status_match:
+            continue
+
+        recipient_match = _RE_FINAL_RECIPIENT.search(section) or _RE_ORIGINAL_RECIPIENT.search(section)
+        recipient = recipient_match.group(1).strip() if recipient_match else ""
+
+        diag_match = _RE_DIAGNOSTIC.search(section)
+        diagnostic = diag_match.group(1).strip() if diag_match else ""
+
+        error_code = ""
+        error_message = diagnostic
+        if diagnostic:
+            code_match = re.match(r"(5\d{2})[\s\-]+(.*)", diagnostic)
+            if code_match:
+                error_code = code_match.group(1)
+                error_message = code_match.group(2).strip()
+        if not error_code:
+            error_code = status_match.group(1)
+        if not error_message:
+            error_message = f"DSN status {status_match.group(1)}"
+
+        results.append({"error_code": error_code, "error_message": error_message, "to_addr": recipient})
+
+    return results
+
+
+def _extract_body_errors(body_text):
+    """Extract 5xx errors from plain-text body using regex."""
+    results = []
+    seen = set()
+
+    for match in _RE_5XX.finditer(body_text):
+        code = match.group(1)
+        enhanced = match.group(2) or ""
+        message = match.group(3).strip()
+        key = (code, message[:80])
+        if key in seen:
+            continue
+        seen.add(key)
+        display_code = f"{code} {enhanced}".strip() if enhanced else code
+        results.append({"error_code": display_code, "error_message": message, "to_addr": ""})
+
+    if not results:
+        for match in _RE_ENHANCED.finditer(body_text):
+            enhanced = match.group(1)
+            message = match.group(2).strip()
+            key = (enhanced, message[:80])
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append({"error_code": enhanced, "error_message": message, "to_addr": ""})
+
+    return results
+
+
+def _extract_failed_recipients(msg, body_text):
+    """Try to determine the failed recipient address(es)."""
+    x_failed = get_header(msg, "X-Failed-Recipients")
+    if x_failed:
+        return [addr.strip() for addr in x_failed.split(",") if addr.strip()]
+
+    recipients = []
+    for line in body_text.split("\n"):
+        lower = line.lower()
+        if any(kw in lower for kw in ("recipient", "rcpt to", "original-recipient", "final-recipient")):
+            recipients.extend(_EMAIL_PATTERN.findall(line))
+
+    return list(dict.fromkeys(recipients))
+
+
+def _extract_original_subject(msg, body_text):
+    """Try to recover the original email's Subject from the bounce."""
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == "message/rfc822":
+                payload = part.get_payload()
+                if isinstance(payload, list) and payload:
+                    subj = get_header(payload[0], "Subject")
+                    if subj:
+                        return subj
+
+    match = re.search(r"^Subject:\s*(.+?)$", body_text, re.MULTILINE)
+    if match:
+        return decode_header_value(match.group(1).strip())
+    return ""
+
+
+def _extract_original_from(msg, body_text):
+    """Try to recover the original sender address from the bounce."""
+    # The bounce's To header is typically the original sender
+    addr = get_address(msg, "To")
+    if addr:
+        return addr
+
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == "message/rfc822":
+                payload = part.get_payload()
+                if isinstance(payload, list) and payload:
+                    addr = get_address(payload[0], "From")
+                    if addr:
+                        return addr
+
+    match = re.search(r"^From:\s*(.+?)$", body_text, re.MULTILINE)
+    if match:
+        raw = match.group(1).strip()
+        addrs = _EMAIL_PATTERN.findall(raw)
+        if addrs:
+            return addrs[0]
+
+    return ""

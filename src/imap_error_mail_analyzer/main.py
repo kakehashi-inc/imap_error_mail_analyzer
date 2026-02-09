@@ -1,0 +1,125 @@
+"""CLI entry point for IMAP Error Mail Analyzer."""
+
+import argparse
+import logging
+import sys
+
+from .modules.config import load_config
+from .modules.imap_client import ImapClient
+from .modules.bounce_parser import extract_bounces
+from .modules.ollama_client import OllamaClient
+from .modules.report import write_reports
+from .modules.cache import ProcessedCache
+from .utils.email_utils import compute_message_hash
+from .utils.logger import setup_logging
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_DAYS = 30
+
+
+def parse_args(argv=None):
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        prog="imap-error-mail-analyzer",
+        description="Analyze IMAP bounce mails, classify 5xx errors with Ollama, and generate CSV reports.",
+    )
+    parser.add_argument("-c", "--config", default="config.json", help="Path to config JSON file (default: config.json)")
+    parser.add_argument("--days", type=int, default=None, help="Override fetch days (default: value from config)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    return parser.parse_args(argv)
+
+
+def process_account(account_name, account_config, days, ollama, log_dir):
+    """Fetch bounces for a single IMAP account, classify, and write reports."""
+    cache = ProcessedCache(f"{log_dir}/.cache", account_name)
+    cache.purge_older_than(days)
+
+    client = ImapClient(account_config)
+    try:
+        client.connect()
+    except Exception:
+        logger.error("Failed to connect to account '%s'", account_name, exc_info=True)
+        return
+
+    target_records = []
+    excluded_records = []
+    processed_count = 0
+
+    try:
+        for folder in account_config.check:
+            messages = client.fetch_messages(folder, days)
+            for msg in messages:
+                msg_hash = compute_message_hash(msg)
+                if cache.is_processed(msg_hash):
+                    continue
+
+                bounces = extract_bounces(msg, folder=folder, sender_address=account_config.username)
+                if not bounces:
+                    cache.mark_processed(msg_hash)
+                    continue
+
+                for bounce in bounces:
+                    classification = ollama.classify_error(bounce)
+                    record = _build_record(account_name, bounce, classification)
+
+                    if classification["is_user_caused"]:
+                        excluded_records.append(record)
+                    else:
+                        target_records.append(record)
+
+                cache.mark_processed(msg_hash)
+                processed_count += 1
+    finally:
+        client.disconnect()
+        cache.save()
+
+    write_reports(log_dir, account_name, target_records, excluded_records)
+
+    logger.info(
+        "Account '%s': %d bounce(s) processed, %d target, %d excluded (user)",
+        account_name,
+        processed_count,
+        len(target_records),
+        len(excluded_records),
+    )
+
+
+def _build_record(account_name, bounce, classification):
+    """Merge bounce data and AI classification into a flat dict for CSV."""
+    return {
+        "date": bounce.date,
+        "account": account_name,
+        "folder": bounce.folder,
+        "error_code": bounce.error_code,
+        "error_cause": bounce.error_message,
+        "ai_responsible_party": classification["responsible"],
+        "ai_reason": classification["reason"],
+        "from_addr": bounce.from_addr,
+        "to_addr": bounce.to_addr,
+        "subject": bounce.subject,
+        "body": bounce.body,
+    }
+
+
+def main():
+    """Application entry point."""
+    args = parse_args()
+    setup_logging(args.verbose)
+
+    config = load_config(args.config)
+    days = args.days or config.default_days or _DEFAULT_DAYS
+    logger.info("Fetch window: %d day(s)", days)
+
+    ollama = OllamaClient(config.ollama.base_url, config.ollama.model)
+
+    for account_name, account_config in config.accounts.items():
+        logger.info("--- Processing account: %s ---", account_name)
+        process_account(account_name, account_config, days, ollama, config.log_dir)
+
+    logger.info("All accounts processed.")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
