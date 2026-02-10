@@ -4,6 +4,7 @@ import re
 import logging
 from dataclasses import dataclass
 
+from ..utils.date_utils import format_email_date
 from ..utils.email_utils import (
     decode_header_value,
     get_header,
@@ -90,7 +91,7 @@ def extract_bounces(msg, folder="INBOX", sender_address=""):
         One record per failed recipient / error found.  Empty list when
         no 5xx errors are detected.
     """
-    date = get_header(msg, "Date")
+    date = format_email_date(get_header(msg, "Date"))
     body_text = get_all_body_text(msg)
 
     # Only DSN structured parsing; body regex fallback removed (too noisy)

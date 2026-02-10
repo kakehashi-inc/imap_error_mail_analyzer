@@ -1,6 +1,7 @@
 """Date string parsing utilities."""
 
 from datetime import date, datetime
+from email.utils import parsedate_to_datetime
 
 _DATE_FORMATS = (
     "%Y-%m-%d",
@@ -39,3 +40,25 @@ def parse_date_or_today(text):
     if not text:
         return date.today()
     return parse_date(text)
+
+
+def format_email_date(raw_date):
+    """Format an RFC 2822 email Date header as local time ``yyyy-MM-dd HH:mm:ss``.
+
+    Parameters
+    ----------
+    raw_date : str
+        Raw ``Date`` header value (e.g. ``Mon, 10 Feb 2026 12:34:56 +0900``).
+
+    Returns
+    -------
+    str
+        Formatted local-time string, or *raw_date* unchanged on parse failure.
+    """
+    if not raw_date:
+        return ""
+    try:
+        dt = parsedate_to_datetime(raw_date)
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return raw_date

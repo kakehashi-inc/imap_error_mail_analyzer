@@ -235,7 +235,7 @@ python -m imap_error_mail_analyzer.main
 
 - Bootstrap 5によるレスポンシブデザイン
 - 全アカウントを1ファイルに統合、アカウント別 > target/excluded のセクション構造
-- テーブルカラム: date, error_code, error_message, ai_responsible_party, ai_reason, from_addr, to_addr, subject, Body(ボタン)
+- テーブルカラム: Date(日付/時間改行), Detail(Category+Reason+Error Code+Message統合), From, To, Subject, Body(ボタン)
 - Bodyボタンクリックでモーダルダイアログに本文を表示
 
 ### 処理済みキャッシュ

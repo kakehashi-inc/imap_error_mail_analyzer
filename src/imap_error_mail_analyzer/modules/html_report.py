@@ -11,16 +11,17 @@ logger = logging.getLogger(__name__)
 
 _RE_REPORT_FILE = re.compile(r"^\d{8}_(.+)_(target|excluded)\.json$")
 
-_TABLE_COLUMNS = [
-    ("Date", "date"),
-    ("Code", "error_code"),
-    ("Message", "error_message"),
-    ("Category", "ai_responsible_party"),
-    ("Reason", "ai_reason"),
-    ("From", "from_addr"),
-    ("To", "to_addr"),
-    ("Subject", "subject"),
-]
+_CSS = """\
+.bounce-table th, .bounce-table td { vertical-align: top; }
+.bounce-table .col-date { white-space: nowrap; }
+.bounce-table .col-detail { min-width: 18em; }
+.bounce-table .col-addr { min-width: 10em; word-break: break-all; }
+.bounce-table .col-subject { min-width: 10em; }
+.bounce-table .col-body { white-space: nowrap; }
+.detail-category { font-weight: 600; }
+.detail-error { margin-top: .4em; color: #555; font-size: .9em; }
+.detail-error-label { font-weight: 600; }
+"""
 
 
 def generate_html_report(log_dir, report_dir, date_str=None):
@@ -105,9 +106,10 @@ def _build_html(display_date, accounts):
 <title>Bounce Report {escape(display_date)}</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"\
  rel="stylesheet" crossorigin="anonymous">
+<style>{_CSS}</style>
 </head>
 <body>
-<div class="container py-4">
+<div class="container-fluid py-4">
 <h1>Bounce Report <small class="text-muted">{escape(display_date)}</small></h1>
 <p class="text-muted">Generated: {escape(generated)}</p>
 {"".join(sections)}
@@ -158,30 +160,66 @@ def _build_account_section(account_name, data):
 
 def _build_table(records):
     """Build an HTML table from a list of record dicts."""
-    header_cells = "".join(f"<th>{col[0]}</th>" for col in _TABLE_COLUMNS)
-    header_cells += "<th>Body</th>"
-
     rows = []
     for rec in records:
-        cells = []
-        for _, key in _TABLE_COLUMNS:
-            cells.append(f"<td>{escape(str(rec.get(key, '')))}</td>")
-        body = rec.get("body_plain") or rec.get("body_html") or ""
-        if body:
-            btn = (
-                '<button class="btn btn-sm btn-outline-secondary" '
-                'data-bs-toggle="modal" data-bs-target="#bodyModal" '
-                f'data-body="{escape(body, quote=True)}">View</button>'
-            )
-        else:
-            btn = ""
-        cells.append(f"<td>{btn}</td>")
-        rows.append(f"<tr>{''.join(cells)}</tr>")
+        row = _build_row(rec)
+        rows.append(row)
 
     return f"""\
 <div class="table-responsive">
-<table class="table table-sm table-hover">
-<thead><tr>{header_cells}</tr></thead>
+<table class="table table-sm table-hover bounce-table">
+<thead><tr>\
+<th class="col-date">Date</th>\
+<th class="col-detail">Detail</th>\
+<th class="col-addr">From</th>\
+<th class="col-addr">To</th>\
+<th class="col-subject">Subject</th>\
+<th class="col-body">Body</th>\
+</tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
 </div>"""
+
+
+def _build_row(rec):
+    """Build a single ``<tr>`` element for a bounce record."""
+    date_val = escape(str(rec.get("date", "")))
+    error_code = escape(str(rec.get("error_code", "")))
+    error_msg = escape(str(rec.get("error_message", "")))
+    category = escape(str(rec.get("ai_responsible_party", "")))
+    reason = escape(str(rec.get("ai_reason", "")))
+    from_addr = escape(str(rec.get("from_addr", "")))
+    to_addr = escape(str(rec.get("to_addr", "")))
+    subject = escape(str(rec.get("subject", "")))
+
+    # Date: split "yyyy-MM-dd HH:mm:ss" into date line + time line
+    date_cell = "<br>".join(date_val.split(" ", 1)) if " " in date_val else date_val
+
+    # Detail: category + reason + error code/message
+    detail_cell = (
+        f'<span class="detail-category">{category}</span><br>{reason}'
+        f'<div class="detail-error">'
+        f'<span class="detail-error-label">Error Code:</span> {error_code}<br>'
+        f"{error_msg}</div>"
+    )
+
+    body = rec.get("body_plain") or rec.get("body_html") or ""
+    if body:
+        btn = (
+            '<button class="btn btn-sm btn-outline-secondary" '
+            'data-bs-toggle="modal" data-bs-target="#bodyModal" '
+            f'data-body="{escape(body, quote=True)}">View</button>'
+        )
+    else:
+        btn = ""
+
+    return (
+        f"<tr>"
+        f'<td class="col-date">{date_cell}</td>'
+        f'<td class="col-detail">{detail_cell}</td>'
+        f'<td class="col-addr">{from_addr}</td>'
+        f'<td class="col-addr">{to_addr}</td>'
+        f'<td class="col-subject">{subject}</td>'
+        f'<td class="col-body">{btn}</td>'
+        f"</tr>"
+    )
