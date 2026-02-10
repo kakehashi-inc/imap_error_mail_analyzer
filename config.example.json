@@ -1,6 +1,7 @@
 {
-  "default_days": 7,
+  "default_days": 30,
   "log_dir": "logs",
+  "report_dir": "reports",
   "ollama": {
     "base_url": "http://localhost:11434",
     "model": "gemma3:12b"

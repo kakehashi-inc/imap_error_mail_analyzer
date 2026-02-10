@@ -118,6 +118,7 @@ cp config.example.json config.json
 |------|------|-----------|
 | `default_days` | 取得日数 | `7` |
 | `log_dir` | ログ出力ディレクトリ | `"logs"` |
+| `report_dir` | HTMLレポート出力ディレクトリ | `"reports"` |
 | `ollama.base_url` | Ollama APIのURL | `"http://localhost:11434"` |
 | `ollama.model` | 使用するモデル名 | `"gemma3:4b"` |
 | `accounts.<name>.host` | IMAPサーバーホスト | (必須) |
@@ -227,6 +228,15 @@ python -m imap_error_mail_analyzer.main
 | `body_plain_original` | 元メッセージのtext/plain(先頭1000文字) |
 | `body_html_original` | 元メッセージのtext/html(先頭1000文字) |
 | `delivery_status` | DSNの構造化フィールド(dict) |
+
+### HTMLレポート
+
+`run` コマンド完了時に `report_dir` (デフォルト: `reports`) に `report_{YYYYMMDD}.html` が自動生成されます。
+
+- Bootstrap 5によるレスポンシブデザイン
+- 全アカウントを1ファイルに統合、アカウント別 > target/excluded のセクション構造
+- テーブルカラム: date, error_code, error_message, ai_responsible_party, ai_reason, from_addr, to_addr, subject, Body(ボタン)
+- Bodyボタンクリックでモーダルダイアログに本文を表示
 
 ### 処理済みキャッシュ
 

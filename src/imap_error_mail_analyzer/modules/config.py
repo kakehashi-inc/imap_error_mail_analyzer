@@ -36,6 +36,7 @@ class AppConfig:
 
     default_days: int | None
     log_dir: str
+    report_dir: str
     ollama: OllamaConfig
     accounts: dict[str, AccountConfig]
 
@@ -83,10 +84,12 @@ def load_config(config_path):
         sys.exit(1)
 
     log_dir = config_dir / raw.get("log_dir", "logs")
+    report_dir = config_dir / raw.get("report_dir", "reports")
 
     return AppConfig(
         default_days=raw.get("default_days"),
         log_dir=str(log_dir),
+        report_dir=str(report_dir),
         ollama=ollama,
         accounts=accounts,
     )

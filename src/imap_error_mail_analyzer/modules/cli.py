@@ -10,8 +10,9 @@ from .bounce_parser import extract_bounces
 from .cache import ProcessedCache
 from .imap_client import ImapClient
 from .ollama_client import OllamaClient
+from .html_report import generate_html_report
 from .report import write_reports
-from ..utils.categories import VALID_CATEGORIES, TARGET_CATEGORIES, is_excluded_category
+from ..utils.categories import VALID_CATEGORIES, TARGET_CATEGORIES
 from ..utils.date_utils import parse_date_or_today
 from ..utils.email_utils import compute_message_hash
 
@@ -40,6 +41,14 @@ def run_main(config, days):
 
     logger.debug("All accounts processed.")
     _log_summary(all_summaries)
+
+    html_path = generate_html_report(config.log_dir, config.report_dir)
+    if html_path:
+        try:
+            rel_path = Path(html_path).relative_to(Path.cwd())
+        except ValueError:
+            rel_path = html_path
+        logger.info("HTML report: %s", rel_path)
 
 
 def run_cleanup(config, date_text):
@@ -279,7 +288,6 @@ def _log_summary(all_summaries):
         logger.info("No bounce records found across all accounts.")
         return
 
-    has_target = False
     logger.info("=== Bounce record summary ===")
     grand_total = 0
     for account_name, summary in all_summaries.items():
@@ -287,10 +295,5 @@ def _log_summary(all_summaries):
         account_total = sum(summary.values())
         grand_total += account_total
         logger.info("  %s: %s (total: %d)", account_name, ", ".join(parts), account_total)
-        if any(not is_excluded_category(p) for p in summary):
-            has_target = True
     if len(all_summaries) > 1:
         logger.info("  Grand total: %d", grand_total)
-
-    if has_target:
-        logger.info("Tip: imap-error-mail-analyzer report")

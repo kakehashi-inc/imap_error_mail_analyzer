@@ -51,6 +51,18 @@ def write_reports(log_dir, account_name, target_records, excluded_records):
 
 
 def _write_json(path, records):
-    """Write a list of record dicts to a formatted JSON file (UTF-8)."""
+    """Write a list of record dicts to a formatted JSON file (UTF-8).
+
+    If the file already exists, new records are appended to avoid
+    overwriting results from a previous run on the same day.
+    """
+    existing = []
+    if path.exists():
+        try:
+            with open(path, encoding="utf-8") as f:
+                existing = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            existing = []
+    merged = existing + records
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(records, f, ensure_ascii=False, indent=2)
+        json.dump(merged, f, ensure_ascii=False, indent=2)

@@ -216,3 +216,4 @@ downloads/
 .specstory
 wget-log
 logs/
+reports/
