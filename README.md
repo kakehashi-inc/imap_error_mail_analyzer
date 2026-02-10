@@ -137,40 +137,53 @@ ollama pull gemma3:12b
 
 ## 使用方法
 
-### コマンドラインオプション
+### サブコマンド
 
 ```bash
 imap-error-mail-analyzer --help
 ```
 
+| サブコマンド | 説明 |
+| --- | --- |
+| `run` | バウンスメール取得・分類・レポート生成 |
+| `cleanup` | 指定日のレポートJSONとキャッシュエントリを削除 |
+| `report` | 指定日のレポートを表示 |
+| `version` | バージョン表示(`-v` と同じ) |
+
 ### コマンド例
 
 ```bash
 # バージョン確認
-imap-error-mail-analyzer --version
-
-# デフォルト設定で実行(config.jsonのdefault_days日間)
-imap-error-mail-analyzer
-
-# 日数指定(config.jsonのdefault_daysを上書き)
-imap-error-mail-analyzer --days 30
-
-# カスタム設定ファイル使用
-imap-error-mail-analyzer --config /path/to/config.json
-
-# 詳細出力
 imap-error-mail-analyzer -v
 
+# デフォルト設定で実行(config.jsonのdefault_days日間)
+imap-error-mail-analyzer run
+
+# 日数指定(config.jsonのdefault_daysを上書き)
+imap-error-mail-analyzer run --days 30
+
+# カスタム設定ファイル使用
+imap-error-mail-analyzer -c /path/to/config.json run
+
+# 詳細出力
+imap-error-mail-analyzer -V run
+
 # 指定日のレポートとキャッシュを削除(日付省略時は今日)
-imap-error-mail-analyzer --cleanup 2026-02-10
-imap-error-mail-analyzer --cleanup
+imap-error-mail-analyzer cleanup 2026-02-10
+imap-error-mail-analyzer cleanup
 
 # レポート表示(日付省略時は今日)
-imap-error-mail-analyzer --report
-imap-error-mail-analyzer --report 2026-02-10
+imap-error-mail-analyzer report
+imap-error-mail-analyzer report 2026-02-10
 
 # カテゴリを指定してレポート表示
-imap-error-mail-analyzer --report --category ip_block,config_error
+imap-error-mail-analyzer report --category ip_block,config_error
+
+# アカウントを指定してレポート表示
+imap-error-mail-analyzer report --accounts account1,account2
+
+# ボディ内容を含めて詳細表示
+imap-error-mail-analyzer report --detail
 ```
 
 ### uvでの使用
@@ -203,14 +216,17 @@ python -m imap_error_mail_analyzer.main
 | `date` | バウンスメールの日付 |
 | `folder` | メールフォルダ |
 | `error_code` | 5xxエラーコード |
-| `error_cause` | エラーの原因(5xxの原因) |
+| `error_message` | エラーメッセージ |
 | `ai_responsible_party` | AIによる対応すべき人 |
 | `ai_reason` | AIの判定理由 |
 | `from_addr` | 元の送信者アドレス |
 | `to_addr` | 配信失敗した宛先アドレス |
 | `subject` | 元メールの件名 |
-| `body_plain` | text/plain本文(先頭1000文字、空白・改行正規化済み) |
-| `body_html` | text/html本文(body抽出、style/script除去、HTMLタグ保持、先頭1000文字) |
+| `body_plain` | バウンス通知のtext/plain(エラー内容のみ、先頭1000文字) |
+| `body_html` | バウンス通知のtext/html(エラー内容のみ、先頭1000文字) |
+| `body_plain_original` | 元メッセージのtext/plain(先頭1000文字) |
+| `body_html_original` | 元メッセージのtext/html(先頭1000文字) |
+| `delivery_status` | DSNの構造化フィールド(dict) |
 
 ### 処理済みキャッシュ
 

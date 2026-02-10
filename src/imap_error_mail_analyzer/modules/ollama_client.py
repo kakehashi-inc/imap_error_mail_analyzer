@@ -36,8 +36,9 @@ Block types (by priority):
 2. If a SENDING DOMAIN is blocked or rejected by policy -> domain_block
 3. If a specific EMAIL ADDRESS is rejected or unknown -> user_unknown
 
-Remote server issues:
-- If the REMOTE/RECIPIENT server refuses the connection or is unreachable and there is NO indication the sender is blocklisted (e.g. "refused to talk to me", "Access Denied", "connection refused", remote server down) -> remote_server
+Connection/policy rejection:
+- "Recipient address rejected: Access denied" (Microsoft/EXO) -> domain_block
+- "refused to talk to me", "connection refused", remote server rejections -> domain_block (assume sender is blocked unless clearly a different issue)
 
 Rate limit distinction:
 - If the RECIPIENT is receiving mail at a rate that prevents delivery (e.g. "user you are trying to contact is receiving mail at a rate", Gmail 5.2.1) -> user_rate_limit
@@ -58,11 +59,12 @@ REASON: 送信元IPがSpamhausブロックリストに登録されている
 CATEGORY: user_unknown
 REASON: 宛先メールアドレスが存在しない
 
-CATEGORY: remote_server
-REASON: 受信側サーバーが接続を拒否している"""
+CATEGORY: domain_block
+REASON: 受信側サーバーが送信元からの接続を拒否している"""
 
 _RE_CATEGORY = re.compile(r"CATEGORY\s*:\s*(\S+)", re.IGNORECASE)
 _RE_REASON = re.compile(r"REASON\s*:\s*(.+)", re.IGNORECASE)
+
 
 class OllamaClient:
     """Thin wrapper around the Ollama ``/api/generate`` endpoint."""

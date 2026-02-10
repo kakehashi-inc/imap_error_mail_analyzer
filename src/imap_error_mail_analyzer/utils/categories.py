@@ -36,15 +36,6 @@ CATEGORIES = {
         "prompt": ("DNS misconfiguration (SPF/DKIM/DMARC)," " relay denied (sending server not authorized to relay)," " network/routing problems"),
         "excluded": False,
     },
-    "remote_server": {
-        "description": "相手側サーバーの問題(接続拒否・応答なし・サーバーダウン等)",
-        "prompt": (
-            "Remote/recipient server issue: connection refused,"
-            ' "refused to talk to me", "Access Denied",'
-            " remote server down or unreachable (not sender's fault)"
-        ),
-        "excluded": True,
-    },
     "user_unknown": {
         "description": "宛先不明・存在しないアドレス・宛先ドメインのタイポ/DNS解決失敗",
         "prompt": ("Wrong/nonexistent recipient address," " recipient domain typo or not found"),

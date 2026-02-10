@@ -10,7 +10,8 @@
       "Bash(glob:*)",
       "Bash(ls:*)",
       "Bash(wc:*)",
-      "Bash(./venv/Scripts/python.exe -m pylint:*)"
+      "Bash(./venv/Scripts/python.exe -m pylint:*)",
+      "Bash(.venvScriptspython.exe -m pylint:*)"
     ],
     "deny": [],
     "ask": []

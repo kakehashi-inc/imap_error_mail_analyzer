@@ -84,7 +84,7 @@ def run_cleanup(config, date_text):
     )
 
 
-def run_report(config, date_text, category_text):
+def run_report(config, date_text, category_text, accounts_text=None, detail=False):
     """Read report JSON files for the given date and print a summary."""
     try:
         target_date = parse_date_or_today(date_text)
@@ -92,21 +92,12 @@ def run_report(config, date_text, category_text):
         logger.error("%s", exc)
         sys.exit(1)
 
-    # Resolve requested categories
-    if category_text:
-        categories = {c.strip() for c in category_text.split(",")}
-        invalid = categories - VALID_CATEGORIES
-        if invalid:
-            logger.error("Unknown category: %s", ", ".join(sorted(invalid)))
-            logger.error("Valid categories: %s", ", ".join(sorted(VALID_CATEGORIES)))
-            sys.exit(1)
-    else:
-        categories = TARGET_CATEGORIES
+    categories = _resolve_categories(category_text)
+    accounts = {a.strip() for a in accounts_text.split(",")} if accounts_text else None
 
     date_str = target_date.strftime("%Y%m%d")
     log_dir = Path(config.log_dir)
 
-    # Collect report files for the date, grouped by account
     report_files = sorted(log_dir.glob(f"{date_str}_*_*.json"))
     if not report_files:
         print(f"No report files found for {target_date.isoformat()}")
@@ -114,40 +105,73 @@ def run_report(config, date_text, category_text):
 
     total_shown = 0
     for report_path in report_files:
-        match = _RE_REPORT_FILE.match(report_path.name)
-        if not match:
-            continue
-
-        try:
-            with open(report_path, encoding="utf-8") as f:
-                records = json.load(f)
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.warning("Failed to read %s: %s", report_path, exc)
-            continue
-
-        filtered = [r for r in records if r.get("ai_responsible_party") in categories]
-        if not filtered:
-            continue
-
-        # Show path relative to cwd when possible
-        try:
-            rel_path = report_path.relative_to(Path.cwd())
-        except ValueError:
-            rel_path = report_path
-        print(rel_path)
-
-        for i, rec in enumerate(filtered):
-            if i > 0:
-                print()
-            print(f"  {rec.get('error_code', '')} {rec.get('error_message', '')}")
-            print(f"  {rec.get('ai_responsible_party', '')}")
-            print(f"  {rec.get('ai_reason', '')}")
-
-        total_shown += len(filtered)
-        print()
+        shown = _print_report_file(report_path, categories, accounts, detail)
+        total_shown += shown
 
     if not total_shown:
         print(f"No matching records for {target_date.isoformat()} " f"(categories: {', '.join(sorted(categories))})")
+
+
+def _resolve_categories(category_text):
+    """Parse and validate the category filter string."""
+    if not category_text:
+        return TARGET_CATEGORIES
+    categories = {c.strip() for c in category_text.split(",")}
+    invalid = categories - VALID_CATEGORIES
+    if invalid:
+        logger.error("Unknown category: %s", ", ".join(sorted(invalid)))
+        logger.error("Valid categories: %s", ", ".join(sorted(VALID_CATEGORIES)))
+        sys.exit(1)
+    return categories
+
+
+def _print_report_file(report_path, categories, accounts, detail):
+    """Print filtered records from a single report file. Returns count of records shown."""
+    match = _RE_REPORT_FILE.match(report_path.name)
+    if not match:
+        return 0
+
+    account_name = match.group(1)
+    report_type = match.group(2)
+
+    if accounts and account_name not in accounts:
+        return 0
+
+    try:
+        with open(report_path, encoding="utf-8") as f:
+            records = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Failed to read %s: %s", report_path, exc)
+        return 0
+
+    filtered = [r for r in records if r.get("ai_responsible_party") in categories]
+    if not filtered:
+        return 0
+
+    print(f"--- {account_name} ({report_type}) [{len(filtered)} records] ---")
+    print()
+
+    for i, rec in enumerate(filtered):
+        if i > 0:
+            print()
+        print(f"[{rec.get('error_code', '')}] {rec.get('error_message', '')}")
+        print(f"Category: {rec.get('ai_responsible_party', '')}")
+        print(f"Reason: {rec.get('ai_reason', '')}")
+        from_addr = rec.get("from_addr", "")
+        if from_addr:
+            print(f"From: {from_addr}")
+        to_addr = rec.get("to_addr", "")
+        if to_addr:
+            print(f"To: {to_addr}")
+        if detail:
+            body = rec.get("body_plain") or rec.get("body_html") or ""
+            if body:
+                print("<body>")
+                print(body)
+                print("</body>")
+
+    print()
+    return len(filtered)
 
 
 # ------------------------------------------------------------------
@@ -269,4 +293,4 @@ def _log_summary(all_summaries):
         logger.info("  Grand total: %d", grand_total)
 
     if has_target:
-        logger.info("Tip: imap-error-mail-analyzer --report")
+        logger.info("Tip: imap-error-mail-analyzer report")
