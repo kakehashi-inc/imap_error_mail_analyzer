@@ -118,6 +118,81 @@ def get_body_parts(msg):
     return "\n".join(plains), "\n".join(htmls)
 
 
+def get_separated_body_parts(msg):
+    """Separate bounce notification body from original message body.
+
+    Bounce emails typically contain a notification part (error information)
+    and the original message inside a ``message/rfc822`` part.  This function
+    collects text from each side independently so that only the error
+    notification is passed to the AI classifier.
+
+    Returns
+    -------
+    tuple[str, str, str, str]
+        ``(notification_plain, notification_html,
+          original_plain, original_html)``
+    """
+    notif_plains = []
+    notif_htmls = []
+    orig_plains = []
+    orig_htmls = []
+
+    if msg.is_multipart():
+        _collect_notification_parts(msg, notif_plains, notif_htmls)
+        _collect_original_parts(msg, orig_plains, orig_htmls)
+    else:
+        payload = msg.get_payload(decode=True)
+        if payload:
+            decoded = _decode_payload(msg, payload)
+            if msg.get_content_type() == "text/html":
+                notif_htmls.append(clean_html_body(decoded))
+            else:
+                notif_plains.append(decoded)
+
+    return (
+        "\n".join(notif_plains),
+        "\n".join(notif_htmls),
+        "\n".join(orig_plains),
+        "\n".join(orig_htmls),
+    )
+
+
+def _collect_notification_parts(msg, plains, htmls):
+    """Recursively collect text parts, skipping message/rfc822 boundaries."""
+    for part in msg.get_payload():
+        content_type = part.get_content_type()
+        if content_type in ("message/rfc822", "message/delivery-status"):
+            continue
+        if part.is_multipart():
+            _collect_notification_parts(part, plains, htmls)
+            continue
+        payload = part.get_payload(decode=True)
+        if not payload:
+            continue
+        decoded = _decode_payload(part, payload)
+        if content_type == "text/plain":
+            plains.append(decoded)
+        elif content_type == "text/html":
+            htmls.append(clean_html_body(decoded))
+
+
+def _collect_original_parts(msg, plains, htmls):
+    """Extract body from message/rfc822 parts (the original message)."""
+    for part in msg.get_payload():
+        if part.get_content_type() == "message/rfc822":
+            inner = part.get_payload()
+            if isinstance(inner, list) and inner:
+                inner = inner[0]
+            if inner:
+                plain, html = get_body_parts(inner)
+                if plain:
+                    plains.append(plain)
+                if html:
+                    htmls.append(html)
+        elif part.is_multipart():
+            _collect_original_parts(part, plains, htmls)
+
+
 def clean_html_body(html):
     """Clean HTML for output by extracting body content and removing noise.
 

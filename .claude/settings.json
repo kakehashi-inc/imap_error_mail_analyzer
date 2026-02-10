@@ -9,7 +9,8 @@
       "Bash(grep:*)",
       "Bash(glob:*)",
       "Bash(ls:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(./venv/Scripts/python.exe -m pylint:*)"
     ],
     "deny": [],
     "ask": []

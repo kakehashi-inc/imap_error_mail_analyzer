@@ -11,7 +11,7 @@ FIELD_KEYS = [
     "date",
     "folder",
     "error_code",
-    "error_cause",
+    "error_message",
     "ai_responsible_party",
     "ai_reason",
     "from_addr",
@@ -19,6 +19,9 @@ FIELD_KEYS = [
     "subject",
     "body_plain",
     "body_html",
+    "body_plain_original",
+    "body_html_original",
+    "delivery_status",
 ]
 
 

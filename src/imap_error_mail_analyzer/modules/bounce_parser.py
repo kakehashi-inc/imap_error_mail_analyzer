@@ -9,7 +9,7 @@ from ..utils.email_utils import (
     get_header,
     get_address,
     get_all_body_text,
-    get_body_parts,
+    get_separated_body_parts,
     normalize_whitespace,
 )
 
@@ -18,18 +18,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Regex patterns
 # ---------------------------------------------------------------------------
-
-# 5xx SMTP reply code, optionally followed by enhanced status code (5.x.x)
-_RE_5XX = re.compile(
-    r"(?:^|[\s;])(5\d{2})[\s\-]+(?:(5\.\d+\.\d+)[\s\-]+)?(.+?)(?:\r?\n|$)",
-    re.MULTILINE,
-)
-
-# Enhanced status code only (5.x.x)
-_RE_ENHANCED = re.compile(
-    r"(?:^|[\s;])(5\.\d+\.\d+)\s+(.+?)(?:\r?\n|$)",
-    re.MULTILINE,
-)
 
 # DSN fields
 _RE_DIAGNOSTIC = re.compile(
@@ -51,18 +39,12 @@ _RE_DSN_STATUS = re.compile(
 
 _EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
 
-# Postfix-style recipient error: <addr>: error description (may span continuation lines)
-_RE_RECIPIENT_ERROR = re.compile(
-    r"<([\w.+-]+@[\w.-]+\.\w+)>:\s+(.+?)(?=\n\S|\n\n|\Z)",
-    re.DOTALL,
-)
-
 # Maximum body snippet length stored in a record
 _MAX_BODY_LEN = 1000
 
 
 @dataclass
-class BounceRecord:
+class BounceRecord:  # pylint: disable=too-many-instance-attributes
     """Single 5xx bounce error extracted from a message."""
 
     date: str
@@ -73,6 +55,9 @@ class BounceRecord:
     subject: str
     body_plain: str
     body_html: str
+    body_plain_original: str
+    body_html_original: str
+    delivery_status: dict
     folder: str
 
 
@@ -108,13 +93,10 @@ def extract_bounces(msg, folder="INBOX", sender_address=""):
     date = get_header(msg, "Date")
     body_text = get_all_body_text(msg)
 
-    # Try DSN structured parsing first, then fall back to body regex
-    errors = _extract_dsn_errors(msg) or _extract_body_errors(body_text)
+    # Only DSN structured parsing; body regex fallback removed (too noisy)
+    errors = _extract_dsn_errors(msg)
     if not errors:
         return []
-
-    # Supplement DSN placeholder messages with body text descriptions
-    _supplement_dsn_messages(errors, body_text)
 
     from_addr = _extract_original_from(msg, body_text) or sender_address
     original_subject = _extract_original_subject(msg, body_text) or get_header(msg, "Subject")
@@ -125,9 +107,11 @@ def extract_bounces(msg, folder="INBOX", sender_address=""):
         if not err["to_addr"] and failed_recipients:
             err["to_addr"] = failed_recipients[min(i, len(failed_recipients) - 1)]
 
-    plain_text, html_text = get_body_parts(msg)
-    plain_snippet = normalize_whitespace(plain_text)[:_MAX_BODY_LEN]
-    html_snippet = normalize_whitespace(html_text)[:_MAX_BODY_LEN]
+    notif_plain, notif_html, orig_plain, orig_html = get_separated_body_parts(msg)
+    plain_snippet = normalize_whitespace(notif_plain)[:_MAX_BODY_LEN]
+    html_snippet = normalize_whitespace(notif_html)[:_MAX_BODY_LEN]
+    orig_plain_snippet = normalize_whitespace(orig_plain)[:_MAX_BODY_LEN]
+    orig_html_snippet = normalize_whitespace(orig_html)[:_MAX_BODY_LEN]
 
     return [
         BounceRecord(
@@ -139,6 +123,9 @@ def extract_bounces(msg, folder="INBOX", sender_address=""):
             subject=original_subject,
             body_plain=plain_snippet,
             body_html=html_snippet,
+            body_plain_original=orig_plain_snippet,
+            body_html_original=orig_html_snippet,
+            delivery_status=err.get("delivery_status", {}),
             folder=folder,
         )
         for err in errors
@@ -151,7 +138,12 @@ def extract_bounces(msg, folder="INBOX", sender_address=""):
 
 
 def _extract_dsn_errors(msg):
-    """Parse errors from a DSN (multipart/report) delivery-status part."""
+    """Parse errors from a DSN (multipart/report) delivery-status part.
+
+    Each returned dict includes a ``delivery_status`` sub-dict that
+    preserves the full set of DSN fields (per-message fields merged
+    with the per-recipient fields) so that no information is lost.
+    """
     dsn_text = ""
     for part in msg.walk():
         if part.get_content_type() == "message/delivery-status":
@@ -171,6 +163,12 @@ def _extract_dsn_errors(msg):
 
     # Split into per-recipient sections (separated by blank lines)
     sections = re.split(r"\n\n+", dsn_text)
+
+    # First section without a Status field is the per-message section
+    per_message_fields = {}
+    if sections and not _RE_DSN_STATUS.search(sections[0]):
+        per_message_fields = _parse_dsn_fields(sections[0])
+
     results = []
     for section in sections:
         status_match = _RE_DSN_STATUS.search(section)
@@ -195,62 +193,50 @@ def _extract_dsn_errors(msg):
         if not error_message:
             error_message = f"DSN status {status_match.group(1)}"
 
-        results.append({"error_code": error_code, "error_message": error_message, "to_addr": recipient})
+        # Merge per-message fields with per-recipient fields
+        dsn_fields = {**per_message_fields, **_parse_dsn_fields(section)}
+
+        results.append(
+            {
+                "error_code": error_code,
+                "error_message": error_message,
+                "to_addr": recipient,
+                "delivery_status": dsn_fields,
+            }
+        )
 
     return results
 
 
-def _supplement_dsn_messages(errors, body_text):
-    """Replace DSN placeholder messages with actual error text from the body.
+def _parse_dsn_fields(section):
+    """Parse a DSN section into a dict of normalised field names and values.
 
-    When DSN parsing finds a Status code but no Diagnostic-Code, the
-    error_message is set to a placeholder like ``DSN status 5.4.4``.
-    This function searches the body text for Postfix-style recipient
-    error lines (``<addr>: description``) and fills in the real message.
+    Field names are lowercased with hyphens replaced by underscores
+    (e.g. ``Diagnostic-Code`` becomes ``diagnostic_code``).
+    Continuation lines (starting with whitespace) are joined.
     """
-    # Build a lookup of recipient -> error description from body text
-    recipient_errors = {}
-    for match in _RE_RECIPIENT_ERROR.finditer(body_text):
-        addr = match.group(1).lower()
-        desc = re.sub(r"\s+", " ", match.group(2)).strip()
-        if addr not in recipient_errors:
-            recipient_errors[addr] = desc
-
-    for err in errors:
-        if not err["error_message"].startswith("DSN status"):
+    fields = {}
+    current_key = None
+    current_value = ""
+    for line in section.splitlines():
+        if not line or line.isspace():
             continue
-        addr_key = err["to_addr"].lower()
-        if addr_key in recipient_errors:
-            err["error_message"] = recipient_errors[addr_key]
-
-
-def _extract_body_errors(body_text):
-    """Extract 5xx errors from plain-text body using regex."""
-    results = []
-    seen = set()
-
-    for match in _RE_5XX.finditer(body_text):
-        code = match.group(1)
-        enhanced = match.group(2) or ""
-        message = match.group(3).strip()
-        key = (code, message[:80])
-        if key in seen:
-            continue
-        seen.add(key)
-        display_code = f"{code} {enhanced}".strip() if enhanced else code
-        results.append({"error_code": display_code, "error_message": message, "to_addr": ""})
-
-    if not results:
-        for match in _RE_ENHANCED.finditer(body_text):
-            enhanced = match.group(1)
-            message = match.group(2).strip()
-            key = (enhanced, message[:80])
-            if key in seen:
-                continue
-            seen.add(key)
-            results.append({"error_code": enhanced, "error_message": message, "to_addr": ""})
-
-    return results
+        if line[0].isspace() and current_key:
+            # Continuation line
+            current_value += " " + line.strip()
+        else:
+            if current_key:
+                fields[current_key] = current_value
+            match = re.match(r"([A-Za-z][A-Za-z0-9\-]*):\s*(.*)", line)
+            if match:
+                current_key = match.group(1).lower().replace("-", "_")
+                current_value = match.group(2).strip()
+            else:
+                current_key = None
+                current_value = ""
+    if current_key:
+        fields[current_key] = current_value
+    return fields
 
 
 def _extract_failed_recipients(msg, body_text):

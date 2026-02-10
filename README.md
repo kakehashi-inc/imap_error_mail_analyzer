@@ -6,8 +6,8 @@
 
 - 複数IMAPアカウントの一括チェック
 - 5xxバウンスメールの自動検出(DSN / 本文テキスト解析)
-- OllamaによるAI分類(IPブロック / ドメインブロック / レート制限 / サーバーエラー / 設定エラー / 宛先不明 / 容量超過)
-- ユーザー起因エラー(宛先不明、メールボックス容量超過)を自動除外
+- OllamaによるAI分類(IPブロック / ドメインブロック / 送信スロットリング / サーバーエラー / 設定エラー / 宛先不明 / 容量超過 / 受信者レート制限)
+- ユーザー起因エラー(宛先不明、メールボックス容量超過、受信者レート制限)を自動除外
 - 日付+アカウント名付きJSONレポート出力(対象/対象外の2ファイル)
 - 処理済みメールのハッシュキャッシュによる重複処理スキップ
 
@@ -160,6 +160,17 @@ imap-error-mail-analyzer --config /path/to/config.json
 
 # 詳細出力
 imap-error-mail-analyzer -v
+
+# 指定日のレポートとキャッシュを削除(日付省略時は今日)
+imap-error-mail-analyzer --cleanup 2026-02-10
+imap-error-mail-analyzer --cleanup
+
+# レポート表示(日付省略時は今日)
+imap-error-mail-analyzer --report
+imap-error-mail-analyzer --report 2026-02-10
+
+# カテゴリを指定してレポート表示
+imap-error-mail-analyzer --report --category ip_block,config_error
 ```
 
 ### uvでの使用
@@ -182,8 +193,8 @@ python -m imap_error_mail_analyzer.main
 
 `log_dir` に以下の2ファイルが出力されます：
 
-- `{YYYYMMDD}_{アカウント名}_target.json` - 対応が必要なエラー(IPブロック/ドメインブロック/レート制限/サーバーエラー/設定エラー)
-- `{YYYYMMDD}_{アカウント名}_excluded.json` - ユーザー起因のエラー(宛先不明/容量超過)
+- `{YYYYMMDD}_{アカウント名}_target.json` - 対応が必要なエラー(IPブロック/ドメインブロック/送信スロットリング/サーバーエラー/設定エラー)
+- `{YYYYMMDD}_{アカウント名}_excluded.json` - ユーザー起因のエラー(宛先不明/容量超過/受信者レート制限)
 
 ### JSONフィールド
 

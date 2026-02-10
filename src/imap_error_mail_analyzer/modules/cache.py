@@ -41,6 +41,27 @@ class ProcessedCache:
         if removed:
             logger.debug("Purged %d stale cache entries", removed)
 
+    def remove_entries_by_date(self, target_date):
+        """Remove all entries whose recorded date matches *target_date*.
+
+        Parameters
+        ----------
+        target_date : datetime.date
+            The date whose entries should be removed.
+
+        Returns
+        -------
+        int
+            Number of entries removed.
+        """
+        iso = target_date.isoformat()
+        before = len(self._data)
+        self._data = {k: v for k, v in self._data.items() if v != iso}
+        removed = before - len(self._data)
+        if removed:
+            logger.info("Removed %d cache entries for %s", removed, iso)
+        return removed
+
     def save(self):
         """Persist the cache to disk."""
         self._dir.mkdir(parents=True, exist_ok=True)

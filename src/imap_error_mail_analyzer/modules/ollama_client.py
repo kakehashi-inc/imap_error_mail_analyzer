@@ -5,6 +5,12 @@ import re
 
 import requests
 
+from ..utils.categories import (
+    VALID_CATEGORIES,
+    build_prompt_category_lines,
+    is_excluded_category,
+)
+
 logger = logging.getLogger(__name__)
 
 _MAX_BODY_PROMPT_LEN = 1000
@@ -22,19 +28,20 @@ Failed Recipient: {to_addr}
 </body block>
 
 Classify into exactly ONE of the following categories:
-- ip_block : Sending server IP/host blocked on blocklist (Spamhaus, RBL, DNSBL, blacklist)
-- domain_block : Sending domain blocked or rejected by recipient policy
-- rate_limit : Sending rate/volume limits exceeded, spam throttling, too many connections
-- server_error : Sending server down, disk full, TLS/certificate issues, internal server error
-- config_error : DNS misconfiguration (SPF/DKIM/DMARC), relay denied, network/routing problems
-- user_unknown : Wrong/nonexistent recipient address, recipient domain typo or not found
-- user_mailbox_full : Recipient mailbox over quota / storage full
+{category_lines}
 
 IMPORTANT classification rules:
 Block types (by priority):
-1. If the SENDING SERVER IP or HOST is blocked (e.g. "Client host blocked", Spamhaus, RBL, DNSBL) -> ip_block
+1. If the SENDING SERVER IP or HOST is explicitly on a blocklist (e.g. "Client host blocked", Spamhaus, RBL, DNSBL, blacklist) -> ip_block
 2. If a SENDING DOMAIN is blocked or rejected by policy -> domain_block
 3. If a specific EMAIL ADDRESS is rejected or unknown -> user_unknown
+
+Remote server issues:
+- If the REMOTE/RECIPIENT server refuses the connection or is unreachable and there is NO indication the sender is blocklisted (e.g. "refused to talk to me", "Access Denied", "connection refused", remote server down) -> remote_server
+
+Rate limit distinction:
+- If the RECIPIENT is receiving mail at a rate that prevents delivery (e.g. "user you are trying to contact is receiving mail at a rate", Gmail 5.2.1) -> user_rate_limit
+- If the SENDING SERVER is throttled or hits volume/connection limits -> sender_throttle
 
 DNS / domain resolution errors:
 - "Host or domain name not found", "Name service error", "domain not found" for the RECIPIENT domain -> user_unknown (the sender typed a wrong domain, e.g. "yhoo.co.jp" instead of "yahoo.co.jp")
@@ -42,22 +49,20 @@ DNS / domain resolution errors:
 
 Reply in exactly two lines (no other text):
 CATEGORY: <category>
-REASON: <brief reason in Japanese>"""
+REASON: <one short sentence in Japanese>
 
-_VALID_CATEGORIES = {
-    "ip_block",
-    "domain_block",
-    "rate_limit",
-    "server_error",
-    "config_error",
-    "user_unknown",
-    "user_mailbox_full",
-}
-_USER_CATEGORIES = {"user_unknown", "user_mailbox_full"}
+Example good responses:
+CATEGORY: ip_block
+REASON: 送信元IPがSpamhausブロックリストに登録されている
+
+CATEGORY: user_unknown
+REASON: 宛先メールアドレスが存在しない
+
+CATEGORY: remote_server
+REASON: 受信側サーバーが接続を拒否している"""
 
 _RE_CATEGORY = re.compile(r"CATEGORY\s*:\s*(\S+)", re.IGNORECASE)
 _RE_REASON = re.compile(r"REASON\s*:\s*(.+)", re.IGNORECASE)
-
 
 class OllamaClient:
     """Thin wrapper around the Ollama ``/api/generate`` endpoint."""
@@ -84,7 +89,7 @@ class OllamaClient:
         Returns
         -------
         dict
-            ``{"responsible": str, "reason": str, "is_user_caused": bool}``
+            ``{"responsible": str, "reason": str, "is_excluded": bool}``
         """
         body = (bounce_record.body_plain or bounce_record.body_html or "")[:_MAX_BODY_PROMPT_LEN]
         prompt = _PROMPT_TEMPLATE.format(
@@ -92,6 +97,7 @@ class OllamaClient:
             error_message=bounce_record.error_message,
             to_addr=bounce_record.to_addr,
             body=body,
+            category_lines=build_prompt_category_lines(),
         )
 
         try:
@@ -116,14 +122,14 @@ def _parse_response(raw_text):
     responsible = cat_match.group(1).lower().strip() if cat_match else ""
     reason = reason_match.group(1).strip() if reason_match else ""
 
-    if responsible not in _VALID_CATEGORIES:
+    if responsible not in VALID_CATEGORIES:
         logger.warning("Unknown category '%s' in response: %s", responsible, raw_text[:200])
         return _fallback(reason)
 
     return {
         "responsible": responsible,
         "reason": reason,
-        "is_user_caused": responsible in _USER_CATEGORIES,
+        "is_excluded": is_excluded_category(responsible),
     }
 
 
@@ -132,5 +138,5 @@ def _fallback(reason=""):
     return {
         "responsible": "unknown",
         "reason": reason or "Classification unavailable",
-        "is_user_caused": False,
+        "is_excluded": False,
     }
