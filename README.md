@@ -5,7 +5,7 @@
 ## 機能
 
 - 複数IMAPアカウントの一括チェック
-- 5xxバウンスメールの自動検出(DSN / 本文テキスト解析)
+- 5xxバウンスメールの自動検出(DSN構造化解析)
 - OllamaによるAI分類(IPブロック / ドメインブロック / 送信スロットリング / サーバーエラー / 設定エラー / 宛先不明 / 容量超過 / 受信者レート制限)
 - ユーザー起因エラー(宛先不明、メールボックス容量超過、受信者レート制限)を自動除外
 - 日付+アカウント名付きJSONレポート出力(対象/対象外の2ファイル)
@@ -116,7 +116,7 @@ cp config.example.json config.json
 
 | キー | 説明 | デフォルト |
 |------|------|-----------|
-| `default_days` | 取得日数 | `7` |
+| `default_days` | 取得日数 | `30` |
 | `log_dir` | ログ出力ディレクトリ | `"logs"` |
 | `report_dir` | HTMLレポート出力ディレクトリ | `"reports"` |
 | `ollama.base_url` | Ollama APIのURL | `"http://localhost:11434"` |
@@ -214,7 +214,7 @@ python -m imap_error_mail_analyzer.main
 
 | フィールド | 説明 |
 |--------|------|
-| `date` | バウンスメールの日付 |
+| `date` | バウンス通知の日時(ローカル時間 `yyyy-MM-dd HH:mm:ss`) |
 | `folder` | メールフォルダ |
 | `error_code` | 5xxエラーコード |
 | `error_message` | エラーメッセージ |

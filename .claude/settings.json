@@ -10,7 +10,7 @@
       "Bash(glob:*)",
       "Bash(ls:*)",
       "Bash(wc:*)",
-      "Bash(./venv/Scripts/python.exe -m pylint:*)"
+      "Bash(powershell -Command \"& { .\\\\venv\\\\Scripts\\\\Activate.ps1; pylint src/ }\")"
     ],
     "deny": [],
     "ask": []

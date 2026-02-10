@@ -74,9 +74,9 @@ Activate venv(Windows PowerShell):
 </python_execution>
 <python_pylint>
 Linux or macOS
-./venv/bin/python -m pylint src
+./venv/bin/python -m pylint src/
 
 Windows
-./venv/Scripts/python.exe -m pylint src
+powershell -Command "& { .\venv\Scripts\Activate.ps1; pylint src/ }"
 </python_pylint>
 </project_details>

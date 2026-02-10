@@ -70,8 +70,8 @@ uvx --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org
 # バージョン確認
 uvx --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ imap-error-mail-analyzer --version
 
-# 基本動作テスト
-uvx --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ imap-error-mail-analyzer --transport stdio
+# 基本動作テスト(設定ファイルを準備して実行)
+uvx --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ imap-error-mail-analyzer run
 ```
 
 **TestPyPIプロジェクトページ**: https://test.pypi.org/project/imap-error-mail-analyzer/
