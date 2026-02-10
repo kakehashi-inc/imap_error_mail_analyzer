@@ -37,7 +37,7 @@ Block types (by priority):
 3. If a specific EMAIL ADDRESS is rejected or unknown -> user_unknown
 
 Connection/policy rejection:
-- "Recipient address rejected: Access denied" (Microsoft/EXO) -> domain_block
+- "Recipient address rejected: Access denied" (Microsoft/EXO 550 5.4.1) -> user_unknown (the recipient address does not exist or is disabled in the tenant)
 - "refused to talk to me", "connection refused", remote server rejections -> domain_block (assume sender is blocked unless clearly a different issue)
 
 Rate limit distinction:
