@@ -132,7 +132,7 @@ cp config.example.json config.json
 ローカルまたはリモートでOllamaを起動し、使用するモデルをプルしておく：
 
 ```bash
-ollama pull gemma3:4b
+ollama pull gemma3:12b
 ```
 
 ## 使用方法
@@ -166,7 +166,14 @@ imap-error-mail-analyzer -v
 
 ```bash
 # 直接実行
-uvx imap-error-mail-analyzer --days 7
+uvx imap-error-mail-analyzer
+```
+
+### Pythonでの使用
+
+```bash
+# activate後にpythonで実行
+python -m imap_error_mail_analyzer.main
 ```
 
 ## 出力
